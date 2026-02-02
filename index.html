@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Voter Roll Search (Static)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+    .row { display:flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input, select, button { font-size: 16px; padding: 10px; }
+    button { cursor: pointer; }
+    .muted { color:#555; font-size: 14px; }
+    .stats { margin-top: 8px; }
+    .results { margin-top: 12px; }
+    .pager { display:flex; gap: 8px; align-items:center; margin-top: 12px; flex-wrap: wrap;}
+    .progress { height: 8px; background:#eee; border-radius: 99px; overflow:hidden; }
+    .bar { height: 100%; width: 0%; background:#333; }
+
+    /* CHIPS */
+    .chips { display:flex; gap: 8px; align-items:center; flex-wrap: wrap; }
+    .chip {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid #ccc;
+      background: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chip.active {
+      border-color: #333;
+      background: #333;
+      color: #fff;
+    }
+
+    /* TABLE */
+    .tableWrap {
+      margin-top: 10px;
+      overflow: auto;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      -webkit-overflow-scrolling: touch;
+      background:#fff;
+    }
+    table {
+      border-collapse: collapse;
+      width: max-content;
+      min-width: 100%;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      white-space: nowrap;
+      vertical-align: top;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 2;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+
+    /* Sticky first column (Voter Name only) */
+    .stickyCol {
+      position: sticky;
+      left: 0;
+      background: #fff;
+      z-index: 3;
+      border-right: 1px solid #eee;
+    }
+    th.stickyCol {
+      z-index: 4;
+      border-right: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+  <h2>Voter Roll Search</h2>
+
+  <div class="row">
+    <label>
+      State
+      <select id="stateSel">
+        <option value="S27">S27</option>
+      </select>
+    </label>
+
+    <label>
+      AC
+      <select id="acSel"></select>
+    </label>
+
+    <button id="loadBtn">Load AC</button>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <input id="q" type="search" placeholder="Type name (Hindi/English OCR text)…" style="flex:1; min-width: 220px;" />
+    <button id="searchBtn">Search</button>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <!-- NEW: Exact toggle + scope chips -->
+  <div class="row" style="margin-top:10px;">
+    <label class="muted" style="display:flex; gap:8px; align-items:center;">
+      <input type="checkbox" id="exactToggle" />
+      Exact (reorder-aware)
+    </label>
+
+    <div class="chips" style="margin-left:12px;">
+      <span class="muted">Search in:</span>
+      <button class="chip active" id="chipVoter" type="button">Voter Name</button>
+      <button class="chip" id="chipRelative" type="button">Relative Name</button>
+      <button class="chip" id="chipAnywhere" type="button">Anywhere</button>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <label class="muted">
+      Sort:
+      <select id="sortSel">
+        <option value="relevance" selected>Relevance</option>
+        <option value="age_asc">Age ↑</option>
+        <option value="age_desc">Age ↓</option>
+      </select>
+    </label>
+
+    <div class="stats muted" id="meta" style="margin-left:auto;"></div>
+  </div>
+
+  <div style="margin-top:10px;">
+    <div class="progress"><div class="bar" id="bar"></div></div>
+    <div class="muted" id="status" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="results" id="results"></div>
+
+  <div class="pager" id="pager" style="display:none;">
+    <button id="prevBtn">Prev</button>
+    <span class="muted" id="pageInfo"></span>
+    <button id="nextBtn">Next</button>
+
+    <span class="muted" style="margin-left:12px;">Page size:</span>
+    <select id="pageSizeSel">
+      <option>25</option>
+      <option selected>50</option>
+      <option>100</option>
+    </select>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "apache-arrow": "https://cdn.jsdelivr.net/npm/apache-arrow/+esm"
+    }
+  }
+  </script>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
