@@ -1,0 +1,10 @@
+# Correct MIME types
+AddType application/wasm .wasm
+AddType text/javascript .mjs
+AddType application/octet-stream .parquet
+AddType application/json .json
+
+# (Optional) avoid caching while debugging
+<IfModule mod_headers.c>
+  Header set Cache-Control "no-store"
+</IfModule>

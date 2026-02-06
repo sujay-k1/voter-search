@@ -7,4 +7,7 @@ class Handler(SimpleHTTPRequestHandler):
     pass
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
+    host = "0.0.0.0"
+    port = 8000
+    print(f"Serving on http://{host}:{port}")
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
