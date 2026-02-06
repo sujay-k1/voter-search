@@ -1,0 +1,1064 @@
+
+<!-- index.html (drop-in replacement) -->
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Jharkhand Electoral Roll - 2003</title>
+  <style>
+    :root{
+      --bg: #ffffff;
+      --ink: #444;
+      --muted: #6b6b6b;
+      --line: rgba(0,0,0,.10);
+      --pill: #ede7f1;
+      --pill2:#f4f0f6;
+      --accent:#5b4aa3;      /* purple */
+      --accent2:#4a3b94;
+      --shadow: 0 10px 30px rgba(0,0,0,.08);
+      --r-14: 14px;
+      --r-18: 18px;
+      --r-24: 24px;
+      --r-999: 999px;
+      --h-ctl: 56px;
+      --maxw: 1366px;
+
+      /* smaller UI scale for popovers/modals */
+      --fs-14: 14px;
+      --fs-16: 16px;
+      --fs-18: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+
+    body{
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    /* ---- top language row ---- */
+    .topbar{
+      
+      margin: 18px auto 0;
+      padding: 0 18px;
+      display:flex;
+      justify-content:center;
+      gap: 36px;
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 16px;
+      user-select:none;
+    }
+    .langBtn{
+      border: 0;
+      background: transparent;
+      color: var(--accent);
+      cursor: pointer;
+      padding: 8px 6px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      opacity: .95;
+    }
+    .langBtn.active{ opacity: 1; }
+    .langCheck{
+      width: 18px; height: 18px;
+      border-radius: 4px;
+      border: 2px solid var(--accent);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .langBtn:not(.active) .langCheck{ display: none; }
+
+    /* ---- landing ---- */
+    .landing{
+      min-height: 100dvh;
+      display:flex;
+      flex-direction:column;
+    }
+    .hero{
+      max-width: var(--maxw);
+      margin: auto;
+      padding: 24px 18px 86px;
+      text-align:center;
+    }
+    .hero h1{
+      margin: 0;
+      font-size: clamp(40px, 6vw, 64px);
+      letter-spacing: -0.02em;
+      font-weight: 800;
+    }
+    .hero p{
+      margin: 18px 0 0;
+      font-size: clamp(18px, 2.4vw, 26px);
+      color: #666666;
+      font-weight: 400;
+    }
+
+    /* ---- search row (desktop) ---- */
+    .searchRowWrap{
+      max-width: 980px;
+      width: 100%;
+      margin: 22px auto 0;
+      padding: 0 18px;
+    }
+    .searchRow{
+      display:flex;
+      align-items:center;
+      gap: 18px;
+      justify-content:center;
+    }
+
+    /* the big pill that contains District dropdown + input */
+    .searchPill{
+      flex: 1 1 auto;
+      min-width: 520px;
+      height: 64px;
+      background: var(--pill);
+      border-radius: var(--r-999);
+      border: 1px solid rgba(0,0,0,.08);
+      display:flex;
+      align-items:center;
+      padding: 8px 8px;
+      gap: 10px;
+    }
+
+    .acShell{
+      height: 48px;
+      min-width: 230px;
+      padding: 0 12px 0 14px;
+      border-radius: var(--r-999);
+      border: 1px solid rgba(0,0,0,.45);
+      background: rgba(255,255,255,.20);
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      flex: 0 0 auto;
+      position: relative; /* for chevron/spinner positioning */
+    }
+
+    .districtSelWrapBtn{
+        position: relative;
+    }
+
+    .districtBtn{
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 700;
+      color:#222;
+      padding: 0;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      width: 100%;
+      text-align: left;
+      height: -webkit-fill-available;
+    }
+
+    .acChevron{
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 6px solid rgba(0,0,0,.65);
+      pointer-events:none;
+
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      margin: 0;
+    }
+
+    /* spinner replaces chevron ONLY when class .loading is applied */
+    .acShell.loading .acChevron{
+      border: 0;
+      width: 18px; height: 18px;
+      border-radius: 999px;
+      background: transparent;
+    }
+    .acShell.loading .acChevron::before{
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      border: 2px solid rgba(0,0,0,.25);
+      border-top-color: rgba(0,0,0,.75);
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ------- name input enhancements (mic + translit) ------- */
+    .enhancedInputWrap{
+      position: relative;
+      flex: 1 1 auto;
+      display:flex;
+      align-items:center;
+      height: 48px;
+      min-width: 0;
+    }
+
+    .qInput{
+      flex: 1 1 auto;
+      border: 0;
+      outline: none;
+      background: transparent;
+      font-size: 18px;
+      padding: 0 12px;
+      height: 48px;
+      color: #1a1a1a;
+      min-width: 0;
+    }
+    .qInput::placeholder{ color: rgba(0,0,0,.35); }
+
+    /* leave room for mic button inside the same field area */
+    .enhancedInputWrap .qInput{
+      padding-right: 56px;
+    }
+
+    .micBtn{
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.22);
+      background: rgba(255,255,255,.55);
+      cursor: pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform .06s ease, opacity .12s ease, background .12s ease, border-color .12s ease;
+    }
+    .micBtn:active{ transform: translateY(-50%) translateY(1px); }
+    .micBtn:disabled{
+      opacity: .45;
+      cursor: not-allowed;
+      pointer-events:none;
+    }
+
+    .micIcon{
+      width: 16px;
+      height: 22px;
+      border-radius: 10px;
+      border: 2px solid rgba(0,0,0,.55);
+      position: relative;
+    }
+    .micIcon::after{
+      content:"";
+      position:absolute;
+      left: 50%;
+      bottom: -8px;
+      transform: translateX(-50%);
+      width: 14px;
+      height: 8px;
+      border: 2px solid rgba(0,0,0,.55);
+      border-top: 0;
+      border-radius: 0 0 10px 10px;
+      opacity: .95;
+    }
+
+    /* Listening state: prominent but still on-brand */
+    .micBtn.listening{
+      border-color: rgba(180, 50, 95, .55);
+      background: rgba(255, 210, 225, .65);
+      box-shadow: 0 8px 24px rgba(180, 50, 95, .18);
+    }
+    .micBtn.listening .micIcon,
+    .micBtn.listening .micIcon::after{
+      border-color: rgba(120, 20, 60, .70);
+    }
+    .micBtn.listening{
+      animation: micPulse 1.25s ease-in-out infinite;
+    }
+    @keyframes micPulse{
+      0% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
+      50% { box-shadow: 0 10px 30px rgba(180, 50, 95, .24); }
+      100% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
+    }
+
+    .listeningChip{
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(255, 210, 225, .70);
+      border: 1px solid rgba(180, 50, 95, .35);
+      color: rgba(0,0,0,.75);
+      font-weight: 900;
+      font-size: 13px;
+      display:none;
+      align-items:center;
+      pointer-events:none;
+      white-space: nowrap;
+    }
+    .enhancedInputWrap.isListening .listeningChip{ display:flex; }
+
+    /* Make chip not overlap typed text too much; JS may toggle this only when listening */
+    .enhancedInputWrap.isListening .qInput{
+      padding-left: 118px;
+    }
+
+    .inlineHint{
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #4a4a4a;
+      line-height: 1.35;
+      display:none;
+      align-items:center;
+      justify-content:space-between;
+      gap: 10px;
+      max-width: 980px;
+    }
+    .inlineHint.show{ display:flex; }
+    .inlineHint .hintText{ opacity: .95; }
+    .inlineHint .hintX{
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.22);
+      background: rgba(255,255,255,.55);
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size: 18px;
+      font-weight: 900;
+      color: rgba(0,0,0,.55);
+      flex: 0 0 auto;
+    }
+
+    .btn{
+      border: 0;
+      cursor: pointer;
+      border-radius: var(--r-999);
+      height: 56px;
+      padding: 0 26px;
+      font-weight: 700;
+      font-size: 18px;
+      transition: transform .06s ease, opacity .12s ease;
+    }
+    .btn:active{ transform: translateY(1px); }
+    .btnPrimary{ background: var(--accent); color: #fff; min-width: 120px; }
+    .btnPrimary:disabled{ opacity: .45; cursor: not-allowed; }
+
+    /* ---- checkbox + tip row ---- */
+    .underRow{
+      max-width: 980px;
+      margin: 12px 0;
+      padding: 0 0px;
+      display:flex;
+      align-items:center;
+      gap: 18px;
+    }
+    .chk{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a1a;
+      white-space: nowrap;
+      user-select:none;
+    }
+    .chk input{ width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+    .tip{ font-size: 14px; color: #1f1f1f; font-weight: 400; width: -webkit-fill-available; text-align: right}
+    .tip b{ font-weight: 700; }
+
+    /* ---- status (text only; progress bar removed) ---- */
+    .statusWrap{
+      max-width: 980px;
+      margin: 16px auto 0;
+      padding: 0 18px 0;
+      text-align:left;
+    }
+    .statusLine{
+      color: #4a4a4a;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.35;
+      margin-top: 6px;
+      min-height: 18px;
+    }
+
+    /* ---- footer links ---- */
+    .footerLinks{
+      padding: 64px 18px 38px;
+      display:flex;
+      justify-content:center;
+      gap: 50px;
+      color: var(--accent);
+      font-weight: 700;
+      user-select:none;
+    }
+    .footerLinks a{
+      color: var(--accent);
+      text-decoration:none;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      opacity: .95;
+    }
+    .footerLinks a:hover{ opacity: 1; }
+    .ic{
+      width: 18px; height: 18px;
+      border-radius: 4px;
+      border: 2px solid rgba(91,74,163,.65);
+      display:inline-block;
+    }
+
+    /* ---- results shell ---- */
+    .resultsShell{
+      min-height: 100dvh;
+      display:none;
+      background: #fbf7ff;
+    }
+    .resultsTop{
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #fbf7ff;
+      padding: 18px 18px 10px;
+      border-bottom: 1px solid rgba(0,0,0,.08);
+    }
+    .resultsTopInner{
+      max-width: var(--maxw);
+      margin: 0 auto;
+      display:flex;
+      align-items:center;
+      gap: 18px;
+    }
+    .resultsPill{
+      flex: 1 1 auto;
+      height: 58px;
+      background: var(--pill);
+      border-radius: var(--r-999);
+      border: 1px solid rgba(0,0,0,.08);
+      display:flex;
+      align-items:center;
+      padding: 7px 10px;
+      gap: 10px;
+      min-width: 520px;
+    }
+    .resultsPill .acShell{ height: 44px; }
+    .resultsPill .enhancedInputWrap{ height: 44px; }
+    .resultsPill .qInput{ height: 44px; }
+
+    .resultsPill .micBtn{
+      width: 40px;
+      height: 40px;
+      right: 6px;
+    }
+    .resultsPill .enhancedInputWrap .qInput{
+      padding-right: 52px;
+    }
+
+    .scopeWrap{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      margin-left: 180px;
+      flex: 0 0 auto;
+      white-space: nowrap;
+      color: #1a1a1a;
+      font-weight: 700;
+    }
+    .seg{
+      display:flex;
+      border-radius: var(--r-999);
+      border: 1px solid rgba(0,0,0,.30);
+      overflow:hidden;
+      background: rgba(255,255,255,.45);
+    }
+    .seg button{
+      border: 0;
+      background: transparent;
+      padding: 10px 16px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor:pointer;
+      min-width: 140px;
+      color: #2a2a2a;
+    }
+    .seg button.active{ background: #e8e1f4; color: #1f1f1f; }
+    .seg button:first-child{ border-right: 1px solid rgba(0,0,0,.20); }
+    .seg button:nth-child(2){ border-right: 1px solid rgba(0,0,0,.20); }
+
+    .filtersRow{
+      max-width: var(--maxw);
+      margin: 12px auto 0;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 18px;
+    }
+    .filtersLeft{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .pillBtn{
+      height: 40px;
+      border-radius: var(--r-999);
+      border: 1px solid rgba(0,0,0,.20);
+      background: rgba(255,255,255,.55);
+      padding: 0 14px;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+    .pillBtn:disabled{ opacity:.45; cursor:not-allowed; }
+    .pillBtn .chev{
+      width: 0; height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 5px solid rgba(0,0,0,.55);
+    }
+    .pillBtn .funnel{
+      width: 12px; height: 12px;
+      border: 2px solid rgba(0,0,0,.45);
+      border-top: 0;
+      transform: rotate(180deg);
+      border-radius: 2px;
+    }
+
+    .resultsMetaRow{
+      max-width: var(--maxw);
+      margin: 14px auto 0;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 18px;
+      color: #2a2a2a;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .sortWrap{ display:flex; align-items:center; gap: 10px; }
+
+    /* Results content region */
+    .resultsBody{
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 12px 0px 0;
+      display:flex;
+      flex-direction:column;
+      height: calc(100dvh - 188px);
+      min-height: 420px;
+    }
+    .tableRegion{
+      flex: 1 1 auto;
+      overflow: auto;
+      border-radius: 18px;
+      border: 1px solid rgba(0,0,0,.10);
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+    table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 14px; }
+    th, td { padding: 10px 10px; border-bottom: 1px solid #eee; white-space: nowrap; vertical-align: top; }
+    th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; }
+    .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; }
+    th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; }
+
+    .pager{
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      margin-top: 12px;
+      background: #fbf7ff;
+      padding: 12px 0 16px;
+      display:none;
+      align-items:center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content:flex-start;
+    }
+    .pager .miniBtn{
+      height: 38px;
+      border-radius: var(--r-999);
+      border: 1px solid rgba(0,0,0,.22);
+      background: rgba(255,255,255,.6);
+      padding: 0 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .pager .muted{ color: #4a4a4a; font-weight: 700; }
+
+    /* --------- popover base --------- */
+    .popover{
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      min-width: 320px;
+      border-radius: 22px;
+      background: rgba(245,240,250,.98);
+      border: 1px solid rgba(0,0,0,.12);
+      box-shadow: var(--shadow);
+      padding: 10px 0;
+      display:none;
+      z-index: 50;
+      overflow: auto;
+      max-height: min(420px, 60vh);
+    }
+
+    .popoverForBottomPosition{
+      position: absolute;
+      top: calc(100% - 296px);
+      left: 0;
+      min-width: 320px;
+      border-radius: 22px;
+      background: rgba(245,240,250,.98);
+      border: 1px solid rgba(0,0,0,.12);
+      box-shadow: var(--shadow);
+      padding: 10px 0;
+      display:none;
+      z-index: 50;
+      overflow: auto;
+      max-height: min(420px, 60vh);
+    }
+
+    .popRow{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      font-weight: 800;
+      color:#1e1e1e;
+      cursor: pointer;
+      font-size: var(--fs-16);
+    }
+    .popRow:hover{ background: rgba(255,255,255,.55); }
+    .popLeft{ display:flex; align-items:center; gap: 10px; }
+    .popRight{ display:flex; align-items:center; gap: 10px; color: rgba(0,0,0,.55); font-weight: 900; }
+    .popSep{ height: 1px; background: rgba(0,0,0,.06); margin: 0 16px; }
+    .popChevron{
+      width: 0; height: 0;
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-left: 6px solid rgba(0,0,0,.45);
+      opacity: .9;
+    }
+    .popSelected{
+      background: rgba(255, 210, 225, .55);
+      border-radius: 18px;
+      margin: 6px 10px;
+    }
+    .popBack{ color: rgba(0,0,0,.55); font-weight: 900; }
+
+    .popSearch{ padding: 10px 14px; }
+    .popSearch input{
+      width: 100%;
+      height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.12);
+      background: rgba(255,255,255,.7);
+      padding: 0 14px;
+      outline: none;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    /* --------- modal --------- */
+    .modalOverlay{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.25);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index: 200;
+      padding: 18px;
+    }
+    .modal{
+      width: min(560px, 92vw);
+      border-radius: 28px;
+      background: rgba(245,240,250,.98);
+      box-shadow: 0 20px 60px rgba(0,0,0,.18);
+      border: 1px solid rgba(0,0,0,.10);
+      padding: 18px 18px 14px;
+    }
+    .modal h2{
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: -0.02em;
+      line-height: 1.14;
+      font-weight: 900;
+    }
+    .modal p{
+      margin: 10px 0 14px;
+      font-size: 15px;
+      color: rgba(0,0,0,.55);
+      font-weight: 700;
+    }
+    .field{
+      margin-top: 10px;
+      background: rgba(0,0,0,.03);
+      border-radius: 16px;
+      border: 1px solid rgba(0,0,0,.08);
+      padding: 10px 12px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .field input{
+      border: 0;
+      outline: none;
+      background: transparent;
+      font-size: 18px;
+      width: 100%;
+      padding: 8px 6px;
+      color: #2a2a2a;
+      font-weight: 800;
+    }
+    .field .xBtn{
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 2px solid rgba(0,0,0,.35);
+      background: transparent;
+      cursor: pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size: 20px;
+      color: rgba(0,0,0,.55);
+      font-weight: 900;
+      flex: 0 0 auto;
+    }
+    .andLabel{
+      margin: 10px 0 0;
+      color: rgba(0,0,0,.55);
+      font-weight: 900;
+      letter-spacing: .03em;
+      font-size: 14px;
+    }
+    .modalActions{
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+      gap: 14px;
+      margin-top: 14px;
+      padding-top: 10px;
+    }
+    .modalActions .cancel{
+      background: transparent;
+      border: 0;
+      color: var(--accent);
+      font-weight: 900;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .modalActions .done{
+      border: 2px solid rgba(91,74,163,.6);
+      color: rgba(0,0,0,.75);
+      background: transparent;
+      border-radius: 999px;
+      font-weight: 900;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 10px 18px;
+    }
+
+    @media (max-width: 980px){
+      .searchRow{ flex-direction:column; gap: 14px; }
+      .searchPill{ min-width: 0; width: 100%; height: 64px; flex-direction: column; height: 136px; border-radius: 32px;}
+      .btnPrimary{ width: 100%; height: 64px; font-size: 20px; }
+      .underRow{ flex-direction:column; align-items:center; text-align:center; }
+      .tip{ max-width: 520px; }
+      .resultsTopInner{ flex-direction:column; align-items:stretch; }
+      .resultsPill{ min-width: 0; width: 100%; }
+      .scopeWrap{ margin-left: 0; justify-content:center; flex-direction: column; align-items: flex-start;}
+      .seg button{ min-width: 0; width: 33.33vw; max-width: 160px; }
+      .resultsBody{ height: calc(100dvh - 330px); }
+      .districtSelWrapBtn{width: -webkit-fill-available;}
+      .enhancedInputWrap{width: -webkit-fill-available;}
+      .tip{ text-align: center; }
+      .hero{max-width: max-content;}
+      .filtersRow{ flex-direction: column-reverse; }
+      .seg{width: -webkit-fill-available;}
+
+      /* a bit smaller on mobile */
+      .districtBtn{ font-size: 16px; }
+      .qInput{ font-size: 16px; }
+
+      :root{
+        --bg: #ffffff;
+        --ink: #444;
+        --muted: #6b6b6b;
+        --line: rgba(0,0,0,.10);
+        --pill: #ede7f1;
+        --pill2:#f4f0f6;
+        --accent:#5b4aa3;
+        --accent2:#4a3b94;
+        --shadow: 0 10px 30px rgba(0,0,0,.08);
+        --r-14: 14px;
+        --r-18: 18px;
+        --r-24: 24px;
+        --r-999: 999px;
+        --h-ctl: 56px;
+        --maxw: 412px;
+
+        --fs-14: 14px;
+        --fs-16: 16px;
+        --fs-18: 18px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- LANDING -->
+  <section class="landing" id="landingSection">
+    <div class="topbar" aria-label="Language switch">
+      <button class="langBtn active" id="langHi" type="button" aria-pressed="true">
+        <span class="langCheck"></span>
+        <span data-i18n="lang_hi">हिंदी में ढूंढें</span>
+      </button>
+      <button class="langBtn" id="langHinglish" type="button" aria-pressed="false">
+        <span class="langCheck"></span>
+        <span data-i18n="lang_hinglish">Hinglish mein search karein</span>
+      </button>
+      <button class="langBtn" id="langEn" type="button" aria-pressed="false">
+        <span class="langCheck"></span>
+        <span data-i18n="lang_en">English</span>
+      </button>
+    </div>
+
+    <div class="hero">
+      <h1 data-i18n="hero_title">Jharkhand Electoral Roll - 2003</h1>
+      <p data-i18n="hero_subtitle">Search for your name in Jharkhand’s 2003 SIR</p>
+
+      <div class="searchRowWrap" style="margin-top:44px;">
+        <div class="searchRow">
+          <div class="searchPill" aria-label="Search bar">
+
+            <select id="stateSel" style="display:none;">
+              <option value="S27" selected>S27</option>
+            </select>
+
+            <!-- Landing District selector (custom, same as results) -->
+            <div class="districtSelWrapBtn" style="">
+              <select id="districtSel" style="display:none;"></select>
+
+              <div class="acShell" aria-label="Select District">
+                <button id="districtBtnLanding" class="districtBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="districtMirrorLanding" data-i18n="select_district">Select District</span>
+                </button>
+                <span class="acChevron" aria-hidden="true"></span>
+              </div>
+
+              <div class="popover" style="min-width: 100px;" id="districtPopoverLanding" aria-hidden="true"></div>
+            </div>
+
+            <!-- Enhanced name input (keeps same input id="q") -->
+            <div class="enhancedInputWrap" id="enhancedWrapLanding">
+              <span class="listeningChip" id="listenChipLanding">Listening…</span>
+
+              <input id="q" class="qInput" type="search"
+                data-i18n-placeholder="placeholder_query"
+                placeholder="Type a name and click search"
+                autocomplete="off" spellcheck="false" />
+
+              <button id="micBtnLanding" class="micBtn" type="button" aria-label="Voice input">
+                <span class="micIcon" aria-hidden="true"></span>
+              </button>
+
+              <!-- Transliteration suggestions (uses existing popover styling) -->
+              <div class="popover" id="translitPopoverLanding" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <button id="searchBtn" class="btn btnPrimary" type="button" disabled data-i18n="btn_search">Search</button>
+        </div>
+
+        <!-- iOS hint (dismissible) -->
+        <div class="inlineHint" id="iosHintLanding" aria-live="polite">
+          <span class="hintText">On iPhone Safari, use the mic on your keyboard to dictate.</span>
+          <button class="hintX" id="iosHintCloseLanding" type="button" aria-label="Dismiss">×</button>
+        </div>
+
+        <div class="underRow">
+          <label class="chk" title="Include typing mistakes (typing-error mode)">
+            <input type="checkbox" id="exactToggle" checked />
+            <span data-i18n="include_typing">Include typing mistakes</span>
+          </label>
+          <div class="tip" data-i18n="tip_text">
+            Tip: You can type your name or your relative’s name (Father, husband, mother)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footerLinks">
+      <a href="#" id="helpLink"><span class="ic"></span> <span data-i18n="need_help">Need help?</span></a>
+      <a href="#" id="feedbackLink"><span class="ic"></span> <span data-i18n="feedback">Have a suggestion? Leave feedback!</span></a>
+      <a href="#" id="codeLink"><span class="ic"></span> <span data-i18n="contribute">Contribute to code</span></a>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="resultsShell" id="resultsSection">
+    <div class="resultsTop">
+      <div class="resultsTopInner">
+        <div>
+            <div class="resultsPill">
+            <select id="stateSelResults" style="display:none;">
+                <option value="S27" selected>S27</option>
+            </select>
+
+            <!-- District stays in results header (clickable) -->
+            <div style="position:relative;">
+                <div class="acShell" aria-label="Selected District">
+                <button id="districtBtn" class="districtBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                    <span id="districtMirror" data-i18n="select_district">Select District</span>
+                </button>
+                <span class="acChevron" aria-hidden="true"></span>
+                </div>
+                <div class="popover" style="min-width: 100px;" id="districtPopover" aria-hidden="true"></div>
+            </div>
+
+            <!-- Enhanced results name input (keeps same input id="qResults") -->
+            <div class="enhancedInputWrap" id="enhancedWrapResults">
+                <span class="listeningChip" id="listenChipResults">Listening…</span>
+
+                <input id="qResults" class="qInput" type="search"
+                data-i18n-placeholder="placeholder_query"
+                placeholder="Type a name and click search"
+                autocomplete="off" spellcheck="false" />
+
+                <button id="micBtnResults" class="micBtn" type="button" aria-label="Voice input">
+                <span class="micIcon" aria-hidden="true"></span>
+                </button>
+
+                <div class="popover" id="translitPopoverResults" aria-hidden="true"></div>
+            </div>
+            </div>
+
+            <button id="searchBtnResults" class="btn btnPrimary" type="button" disabled data-i18n="btn_search">Search</button>
+        </div>
+        <div class="scopeWrap">
+          <div data-i18n="search_in">Search in:</div>
+          <div class="seg" role="tablist" aria-label="Search scope">
+            <button class="active" id="chipVoter" type="button" data-i18n="chip_voter">✓&nbsp; Voter’s name</button>
+            <button id="chipRelative" type="button" data-i18n="chip_relative">Relative’s name</button>
+            <button id="chipAnywhere" type="button" data-i18n="chip_anywhere">Anywhere</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- iOS hint (dismissible) -->
+      <div class="inlineHint" id="iosHintResults" aria-live="polite" style="max-width: var(--maxw); margin: 10px auto 0; padding: 0 0;">
+        <span class="hintText">On iPhone Safari, use the mic on your keyboard to dictate.</span>
+        <button class="hintX" id="iosHintCloseResults" type="button" aria-label="Dismiss">×</button>
+      </div>
+
+      <div class="filtersRow">
+        <div class="filtersLeft">
+          <div style="position:relative;">
+            <button class="pillBtn" id="selectedAcBtn" type="button">
+              <span id="selectedAcText">Selected ACs: All</span>
+              <span class="chev" aria-hidden="true"></span>
+            </button>
+            <div class="popover" style="min-width: 164px;" id="acPopover" aria-hidden="true"></div>
+          </div>
+
+          <div style="position:relative;">
+            <button class="pillBtn" id="moreFiltersBtn" type="button">
+              <span class="funnel" aria-hidden="true"></span>
+              <span data-i18n="more_filters">More filters</span>
+            </button>
+            <div class="popover" style="min-width: 240px;" id="filtersPopover" aria-hidden="true"></div>
+          </div>
+        </div>
+
+        <label class="chk" style="font-weight:800;">
+          <input type="checkbox" id="exactToggleResults" checked />
+          <span data-i18n="include_typing">Include typing mistakes</span>
+        </label>
+      </div>
+
+      <div class="resultsMetaRow">
+        <div><span id="pageInfo">0</span><span id="resultsCount">0</span> <span data-i18n="search_results">Search results</span></div>
+
+        <div class="sortWrap" style="position:relative;">
+          <button class="pillBtn" id="sortBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <span id="sortText">Sort by: Relevance</span>
+            <span class="chev" aria-hidden="true"></span>
+          </button>
+          <div class="popover" style="min-width: 180px;" id="sortPopover" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="resultsBody">
+      <div class="tableRegion">
+        <div class="results" id="results"></div>
+      </div>
+
+      <div class="pager" id="pager">
+        <button class="miniBtn" id="prevBtn" type="button" data-i18n="prev">Prev</button>
+        <span class="muted" id="currentPageCount"></span>
+        <button class="miniBtn" id="nextBtn" type="button" data-i18n="next">Next</button>
+
+        <span class="muted" style="margin-left:12px;" data-i18n="page_size_label">Page size:</span>
+
+        <div style="position:relative;">
+          <button class="pillBtn" id="pageSizeBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <span id="pageSizeText">100</span>
+            <span class="chev" aria-hidden="true"></span>
+          </button>
+          <div class="popoverForBottomPosition" style="min-width: 100px;" id="pageSizePopover" aria-hidden="true"></div>
+        </div>
+
+        <button class="miniBtn" id="clearBtn" type="button" style="margin-left:auto;" data-i18n="clear">Clear</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODAL -->
+  <div class="modalOverlay" id="modalOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h2 id="modalTitle"></h2>
+      <p id="modalSubtitle"></p>
+      <div id="modalFields"></div>
+      <div class="modalActions">
+        <button class="cancel" id="modalCancel" type="button" data-i18n="cancel">Cancel</button>
+        <button class="done" id="modalDone" type="button" data-i18n="done">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "apache-arrow": "https://cdn.jsdelivr.net/npm/apache-arrow/+esm"
+      }
+    }
+  </script>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+
+
+{
+  "name": "voter-search-netlify",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@libsql/client": "^0.15.0"
+  }
+}
