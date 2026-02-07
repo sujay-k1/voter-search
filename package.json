@@ -4,6 +4,22 @@
   "version": "0.0.0",
   "description": "Jharkhand Electoral Roll Search (DB-backed candidate generation + client-side fuzzy ranking)",
   "dependencies": {
-    "@libsql/client": "^0.15.0"
-  }
+    "@libsql/client": "^0.15.15"
+  },
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sujay-k1/voter-search.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/sujay-k1/voter-search/issues"
+  },
+  "homepage": "https://github.com/sujay-k1/voter-search#readme"
 }

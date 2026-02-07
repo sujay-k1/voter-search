@@ -865,7 +865,7 @@ function syncSearchButtonState() {
 }
 
 // ---------- Backend (Netlify Functions) ----------
-const FN_BASE = `${window.location.origin}/netlify/functions/`;
+const FN_BASE = `${window.location.origin}/.netlify/functions/`;
 const fnUrl = (name) => `${FN_BASE}${name}`;
 
 async function postJson(url, payload) {
