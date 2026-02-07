@@ -1,7 +1,7 @@
 // netlify/functions/rows.js
-// Fetches voter rows by row_id list for a given district + AC.
-// mode="score" returns only the fields needed for worker ranking + filters.
-// mode="display" returns all DISPLAY_COLS used in the UI table.
+// Fetch rows by row_id for a given district + AC from Turso.
+// mode="score" returns minimal fields used by worker ranking + filters.
+// mode="display" returns columns used for the results table (keys match UI headers).
 
 function json(statusCode, obj) {
   return {
@@ -9,6 +9,7 @@ function json(statusCode, obj) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
+      "access-control-allow-origin": "*",
     },
     body: JSON.stringify(obj),
   };
@@ -20,6 +21,7 @@ function text(statusCode, msg) {
     headers: {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store",
+      "access-control-allow-origin": "*",
     },
     body: String(msg || ""),
   };
@@ -46,6 +48,7 @@ function districtToDbSlug(idOrLabel) {
 }
 
 function qIdent(name) {
+  // SQLite identifier quoting (supports spaces)
   return `"${String(name).replace(/"/g, '""')}"`;
 }
 
@@ -61,72 +64,43 @@ function pickExistingTable(tablesSet, candidates) {
   return "";
 }
 
-async function getVotersMeta(client) {
+async function findVotersTable(client) {
   const tables = await listTables(client);
-  const votersTable = pickExistingTable(tables, ["voters", "Voters"]);
-  if (!votersTable) throw new Error("Table 'voters' not found in DB");
 
-  const rs = await client.execute(`PRAGMA table_info(${qIdent(votersTable)})`);
-  const cols = new Set((rs.rows || []).map((r) => String(r.name)));
+  // Most likely names (from build scripts / older experiments)
+  const direct = pickExistingTable(tables, ["voters", "voters_min", "voters_slim", "voters_s27", "voter"]);
+  if (direct) return direct;
 
-  const pickCol = (cands) => {
-    for (const c of cands) if (cols.has(c)) return c;
-    return "";
-  };
+  // Fallback: pick any table that looks like voter data
+  for (const t of tables) {
+    const tl = String(t).toLowerCase();
+    if (tl.includes("voter")) return t;
+  }
 
-  // Core keys
-  const rowIdCol = pickCol(["row_id", "rowid"]);
-  const acCol = pickCol(["AC No", "ac_no", "ac", "acno"]);
-  if (!rowIdCol) throw new Error("voters.row_id column not found");
-  if (!acCol) throw new Error("voters AC column not found (expected 'AC No' or 'ac_no' etc.)");
-
-  // Names used by worker
-  const voterRawCol = pickCol(["voter_name_raw", "voter_raw", "voter_raw_name"]);
-  const relRawCol = pickCol(["relative_name_raw", "rel_name_raw", "relative_raw_name"]);
-  const voterNormCol = pickCol(["voter_name_norm", "voter_norm"]);
-  const relNormCol = pickCol(["relative_name_norm", "relative_norm"]);
-
-  // Filters / sort
-  const genderCol = pickCol(["Gender", "gender"]);
-  const ageCol = pickCol(["Age", "age"]);
-
-  // UI (display)
-  const stateCol = pickCol(["State Code", "state_code"]);
-  const partCol = pickCol(["Part No", "part_no"]);
-  const pageCol = pickCol(["Page No", "page_no"]);
-  const serialCol = pickCol(["Serial No", "serial_no"]);
-  const voterNameCol = pickCol(["Voter Name", "voter_name"]);
-  const relNameCol = pickCol(["Relative Name", "relative_name"]);
-  const relationCol = pickCol(["Relation", "relation"]);
-  const houseCol = pickCol(["House No", "house_no"]);
-  const idCol = pickCol(["ID", "id"]);
-
-  return {
-    votersTable,
-    cols,
-    rowIdCol,
-    acCol,
-    voterRawCol,
-    relRawCol,
-    voterNormCol,
-    relNormCol,
-    genderCol,
-    ageCol,
-    stateCol,
-    partCol,
-    pageCol,
-    serialCol,
-    voterNameCol,
-    relNameCol,
-    relationCol,
-    houseCol,
-    idCol,
-  };
+  // If nothing obvious, return empty (will error later with a clear message)
+  return "";
 }
 
-let CLIENT_CACHE = new Map(); // key -> { client, votersMeta }
+async function getTableCols(client, tableName) {
+  const rs = await client.execute(`PRAGMA table_info(${qIdent(tableName)})`);
+  return new Set((rs.rows || []).map((r) => String(r.name)));
+}
+
+function pickCol(cols, candidates) {
+  for (const c of candidates) if (cols.has(c)) return c;
+  return "";
+}
+
+function chunkArray(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+let CLIENT_CACHE = new Map(); // key -> { client }
 
 async function getClientForDistrict(districtSlug) {
+  // Keep this mapping identical to candidates.js
   const groupMap = {
     // Account A (sujay-k1)
     "chatra": "A",
@@ -162,11 +136,13 @@ async function getClientForDistrict(districtSlug) {
   const group = groupMap[districtSlug];
   if (!group) throw new Error(`Unknown district group for "${districtSlug}"`);
 
-  const org = group === "A" ? (process.env.TURSO_ORG_A || "sujay-k1")
+  const org =
+    group === "A" ? (process.env.TURSO_ORG_A || "sujay-k1")
     : group === "B" ? (process.env.TURSO_ORG_B || "sujay-k2")
     : (process.env.TURSO_ORG_C || "sujay-k3");
 
-  const token = group === "A" ? process.env.TURSO_TOKEN_A
+  const token =
+    group === "A" ? process.env.TURSO_TOKEN_A
     : group === "B" ? process.env.TURSO_TOKEN_B
     : process.env.TURSO_TOKEN_C;
 
@@ -185,9 +161,7 @@ async function getClientForDistrict(districtSlug) {
   const { createClient } = await import("@libsql/client");
   const client = createClient({ url, authToken: token });
 
-  const votersMeta = await getVotersMeta(client);
-
-  const entry = { client, votersMeta };
+  const entry = { client };
   CLIENT_CACHE.set(cacheKey, entry);
   return entry;
 }
@@ -212,89 +186,107 @@ exports.handler = async (event) => {
     if (!body) return text(400, "Invalid JSON");
 
     const district = districtToDbSlug(body.district ?? body.districtId);
-
     const ac = Number(body.ac);
     const mode = String(body.mode || "score");
-    let rowIds = Array.isArray(body.rowIds) ? body.rowIds.map((x) => Number(x)).filter(Number.isFinite) : [];
+
+    const rowIdsRaw = Array.isArray(body.rowIds) ? body.rowIds : [];
+    const rowIds = rowIdsRaw.map((x) => Number(x)).filter(Number.isFinite);
 
     if (!district) return text(400, "Missing district");
     if (!Number.isFinite(ac)) return text(400, "Invalid ac");
     if (!rowIds.length) return json(200, { rows: [] });
 
-    // Hard limits (protect function)
-    if (rowIds.length > 5000) rowIds = rowIds.slice(0, 5000);
+    // Hard limit to protect function
+    if (rowIds.length > 50000) return text(400, "rowIds too large");
 
-    const { client, votersMeta } = await getClientForDistrict(district);
+    const { client } = await getClientForDistrict(district);
 
-    const { votersTable, rowIdCol, acCol } = votersMeta;
+    const votersTable = await findVotersTable(client);
+    if (!votersTable) throw new Error("Could not find voters table in DB");
 
-    const placeholders = rowIds.map(() => "?").join(",");
+    const cols = await getTableCols(client, votersTable);
 
-    let sql = "";
-    let args = [ac, ...rowIds];
+    // Column candidates (handles both snake_case and spaced names)
+    const acCol = pickCol(cols, ["ac", "AC No", "ac_no"]) || "ac";
+    const rowIdCol = pickCol(cols, ["row_id", "Row ID", "rowid", "rowId"]) || "row_id";
 
-    if (mode === "display") {
-      const cols = [];
+    // score-mode fields (used by worker ranking + filters)
+    const voterRawCol = pickCol(cols, ["voter_name_raw", "Voter Name", "voter_name"]);
+    const relRawCol = pickCol(cols, ["relative_name_raw", "Relative Name", "relative_name"]);
+    const voterNormCol = pickCol(cols, ["voter_name_norm", "voter_name_raw", "Voter Name", "voter_name"]);
+    const relNormCol = pickCol(cols, ["relative_name_norm", "relative_name_raw", "Relative Name", "relative_name"]);
+    const serialCol = pickCol(cols, ["serial_no", "Serial No", "serial"]);
+    const ageCol = pickCol(cols, ["age", "Age"]);
+    const genderCol = pickCol(cols, ["gender", "Gender"]);
 
-      cols.push(`${qIdent(rowIdCol)} AS row_id`);
+    // display-mode columns (keys must match UI headers)
+    const displayMap = {
+      "State Code": pickCol(cols, ["State Code", "state_code", "state"]),
+      "AC No": pickCol(cols, ["AC No", "ac_no", "ac"]),
+      "Voter Name": pickCol(cols, ["Voter Name", "voter_name", "voter_name_raw"]),
+      "Relative Name": pickCol(cols, ["Relative Name", "relative_name", "relative_name_raw"]),
+      "Relation": pickCol(cols, ["Relation", "relation"]),
+      "Gender": pickCol(cols, ["Gender", "gender"]),
+      "Age": pickCol(cols, ["Age", "age"]),
+      "House No": pickCol(cols, ["House No", "house_no", "house"]),
+      "Serial No": pickCol(cols, ["Serial No", "serial_no", "serial"]),
+      "Page No": pickCol(cols, ["Page No", "page_no", "page"]),
+      "Part No": pickCol(cols, ["Part No", "part_no", "part"]),
+      "ID": pickCol(cols, ["ID", "id"]),
+    };
 
-      if (votersMeta.stateCol) cols.push(`${qIdent(votersMeta.stateCol)} AS ${qIdent("State Code")}`);
-      else cols.push(`'' AS ${qIdent("State Code")}`);
+    // IMPORTANT: SQLite has a "max variables" limit (~999). Keep chunk comfortably lower.
+    const CHUNK = 800;
+    const chunks = chunkArray(rowIds, CHUNK);
 
-      cols.push(`${qIdent(acCol)} AS ${qIdent("AC No")}`);
+    const outRows = [];
 
-      const add = (colName, outName) => {
-        if (colName) cols.push(`${qIdent(colName)} AS ${qIdent(outName)}`);
-        else cols.push(`'' AS ${qIdent(outName)}`);
-      };
+    for (const ids of chunks) {
+      const placeholders = ids.map(() => "?").join(",");
+      const whereSql = `WHERE ${qIdent(acCol)} = ? AND ${qIdent(rowIdCol)} IN (${placeholders})`;
+      const args = [ac, ...ids];
 
-      add(votersMeta.voterNameCol, "Voter Name");
-      add(votersMeta.relNameCol, "Relative Name");
-      add(votersMeta.relationCol, "Relation");
-      add(votersMeta.genderCol, "Gender");
-      add(votersMeta.ageCol, "Age");
-      add(votersMeta.houseCol, "House No");
-      add(votersMeta.serialCol, "Serial No");
-      add(votersMeta.pageCol, "Page No");
-      add(votersMeta.partCol, "Part No");
-      add(votersMeta.idCol, "ID");
+      let selectSql = "";
+      if (mode === "display") {
+        const parts = [
+          `${qIdent(rowIdCol)} AS row_id`,
+        ];
 
-      sql = `SELECT ${cols.join(", ")} FROM ${qIdent(votersTable)} WHERE ${qIdent(acCol)} = ? AND ${qIdent(rowIdCol)} IN (${placeholders})`;
-    } else {
-      const cols = [];
-      cols.push(`${qIdent(rowIdCol)} AS row_id`);
+        // Always include these keys, even if missing in DB (we'll fill later)
+        for (const key of Object.keys(displayMap)) {
+          const col = displayMap[key];
+          if (col) parts.push(`${qIdent(col)} AS ${qIdent(key)}`);
+          else parts.push(`'' AS ${qIdent(key)}`);
+        }
 
-      if (votersMeta.voterRawCol) cols.push(`${qIdent(votersMeta.voterRawCol)} AS voter_name_raw`);
-      else cols.push(`'' AS voter_name_raw`);
+        selectSql = `SELECT ${parts.join(", ")} FROM ${qIdent(votersTable)} ${whereSql}`;
+      } else {
+        // default: score
+        const parts = [
+          `${qIdent(rowIdCol)} AS row_id`,
+          `${voterRawCol ? qIdent(voterRawCol) : "''"} AS voter_name_raw`,
+          `${relRawCol ? qIdent(relRawCol) : "''"} AS relative_name_raw`,
+          `${voterNormCol ? qIdent(voterNormCol) : "''"} AS voter_name_norm`,
+          `${relNormCol ? qIdent(relNormCol) : "''"} AS relative_name_norm`,
+          `${serialCol ? qIdent(serialCol) : "''"} AS serial_no`,
+          `${ageCol ? qIdent(ageCol) : "''"} AS age`,
+          `${genderCol ? qIdent(genderCol) : "''"} AS gender`,
+        ];
+        selectSql = `SELECT ${parts.join(", ")} FROM ${qIdent(votersTable)} ${whereSql}`;
+      }
 
-      if (votersMeta.relRawCol) cols.push(`${qIdent(votersMeta.relRawCol)} AS relative_name_raw`);
-      else cols.push(`'' AS relative_name_raw`);
+      const rs = await client.execute({ sql: selectSql, args });
 
-      if (votersMeta.voterNormCol) cols.push(`${qIdent(votersMeta.voterNormCol)} AS voter_name_norm`);
-      else cols.push(`'' AS voter_name_norm`);
-
-      if (votersMeta.relNormCol) cols.push(`${qIdent(votersMeta.relNormCol)} AS relative_name_norm`);
-      else cols.push(`'' AS relative_name_norm`);
-
-      if (votersMeta.genderCol) cols.push(`${qIdent(votersMeta.genderCol)} AS gender`);
-      else cols.push(`'' AS gender`);
-
-      if (votersMeta.ageCol) cols.push(`${qIdent(votersMeta.ageCol)} AS age`);
-      else cols.push(`'' AS age`);
-
-      if (votersMeta.serialCol) cols.push(`${qIdent(votersMeta.serialCol)} AS serial`);
-      else cols.push(`'' AS serial`);
-
-      sql = `SELECT ${cols.join(", ")} FROM ${qIdent(votersTable)} WHERE ${qIdent(acCol)} = ? AND ${qIdent(rowIdCol)} IN (${placeholders})`;
+      for (const r of rs.rows || []) {
+        // libsql client returns plain objects
+        outRows.push(r);
+      }
     }
 
-    const rs = await client.execute({ sql, args });
-
-    const rows = (rs.rows || []).map((r) => ({ ...r, row_id: Number(r.row_id) }));
-
-    return json(200, { rows });
+    return json(200, { rows: outRows });
   } catch (e) {
     console.error("rows error:", e);
-    return text(500, e && e.message ? e.message : "Server error");
+    // Return JSON so frontend can show the real error if needed
+    return json(500, { error: e?.message || "Server error" });
   }
 };
