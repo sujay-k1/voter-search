@@ -1,0 +1,29 @@
+{
+  "state": "S27",
+  "districts": [
+    { "id": "sahebganj", "label": "Sahebganj", "acs": [1, 2, 3] },
+    { "id": "pakur", "label": "Pakur", "acs": [4, 5, 6] },
+    { "id": "dumka", "label": "Dumka", "acs": [7, 10, 11, 12] },
+    { "id": "jamtara", "label": "Jamtara", "acs": [8, 9] },
+    { "id": "deoghar", "label": "Deoghar", "acs": [13, 14, 15] },
+    { "id": "godda", "label": "Godda", "acs": [16, 17, 18] },
+    { "id": "kodarma", "label": "Kodarma", "acs": [19] },
+    { "id": "hazaribagh", "label": "Hazaribagh", "acs": [20, 21, 24, 25] },
+    { "id": "ramgarh", "label": "Ramgarh", "acs": [22, 23] },
+    { "id": "chatra", "label": "Chatra", "acs": [26, 27] },
+    { "id": "giridih", "label": "Giridih", "acs": [28, 29, 30, 31, 32, 33] },
+    { "id": "bokaro", "label": "Bokaro", "acs": [34, 35, 36, 37] },
+    { "id": "dhanbad", "label": "Dhanbad", "acs": [38, 39, 40, 41, 42, 43] },
+  { "id": "east_Singhbhum", "label": "East Singhbhum", "acs": [44,45,46,47,48,49] },
+  { "id": "Saraikela-Kharswan", "label": "Saraikela-Kharswan", "acs": [50,51,57] },
+  { "id": "West Singhbhum", "label": "West Singhbhum", "acs": [52,53,54,55,56] },
+  { "id": "Ranchi", "label": "Ranchi", "acs": [58,61,62,63,64,65,66] },
+  { "id": "Khunti", "label": "Khunti", "acs": [59,60] },
+  { "id": "Gumla", "label": "Gumla", "acs": [67,68,69] },
+  { "id": "Simdega", "label": "Simdega", "acs": [70,71] },
+  { "id": "Lohardaga", "label": "Lohardaga", "acs": [72] },
+  { "id": "Latehar", "label": "Latehar", "acs": [73,74] },
+  { "id": "Palamu", "label": "Palamu", "acs": [75,76,77,78,79] },
+  { "id": "Garhwa", "label": "Garhwa", "acs": [80,81] }
+]
+}

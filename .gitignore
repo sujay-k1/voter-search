@@ -1,4 +1,8 @@
 data/
+data/
+!data/S27/
+data/S27/*
+!data/S27/district_manifest.json
 *.parquet
 *.duckdb
 *.db
