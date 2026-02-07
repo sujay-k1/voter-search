@@ -297,7 +297,7 @@ exports.handler = async (event) => {
     const body = safeParseJson(event.body || "");
     if (!body) return text(400, "Invalid JSON");
 
-    const district = districtToDbSlug(body.district);
+    const district = districtToDbSlug(body.district ?? body.districtId);
     const ac = Number(body.ac);
     const scope = String(body.scope || "voter");
     const exactOn = !!body.exactOn;

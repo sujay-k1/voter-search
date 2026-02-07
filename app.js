@@ -502,6 +502,10 @@ function setLanguage(lang) {
   }
 }
 
+$("langHi")?.addEventListener("click", () => setLanguage(LANG.HI));
+$("langHinglish")?.addEventListener("click", () => setLanguage(LANG.HINGLISH));
+$("langEn")?.addEventListener("click", () => setLanguage(LANG.EN));
+
 function loadSavedLanguageOrDefault() {
   // i18n.js API has differed across builds. Avoid hard-crash if helper name changed.
   try {

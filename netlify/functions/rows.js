@@ -211,7 +211,8 @@ exports.handler = async (event) => {
     const body = safeParseJson(event.body || "");
     if (!body) return text(400, "Invalid JSON");
 
-    const district = districtToDbSlug(body.district);
+    const district = districtToDbSlug(body.district ?? body.districtId);
+
     const ac = Number(body.ac);
     const mode = String(body.mode || "score");
     let rowIds = Array.isArray(body.rowIds) ? body.rowIds.map((x) => Number(x)).filter(Number.isFinite) : [];
