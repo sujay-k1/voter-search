@@ -2,9 +2,20 @@ data/
 *.parquet
 *.duckdb
 *.db
-node_modules/
+*.sqlite
 out_district_dbs/
+node_modules/
 .env
 .DS_Store
-.DS_Store
 **/.DS_Store
+
+# ignore your local helper scripts (as you requested)
+build_district_sqlite.py
+build_sqlite.py
+inspect_parquet_schema.py
+import_all.sh
+schema.sql
+district_to_group.json
+
+# (if present)
+duckdb-wasm/
