@@ -391,6 +391,9 @@ exports.handler = async (event) => {
     }
 
     return json(200, { candidates, metaByRow });
+
+    console.log("candidates body:", body);
+
   } catch (e) {
     console.error("candidates error:", e);
     return text(500, e && e.message ? e.message : "Server error");
