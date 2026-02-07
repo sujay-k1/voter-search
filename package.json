@@ -1,25 +1,9 @@
 {
-  "name": "voter-search-netlify",
+  "name": "voter-search",
   "private": true,
-  "type": "module",
+  "version": "0.0.0",
+  "description": "Jharkhand Electoral Roll Search (DB-backed candidate generation + client-side fuzzy ranking)",
   "dependencies": {
-    "@libsql/client": "^0.15.15"
-  },
-  "version": "1.0.0",
-  "description": "",
-  "main": "app.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/sujay-k1/SIR-India.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/sujay-k1/SIR-India/issues"
-  },
-  "homepage": "https://github.com/sujay-k1/SIR-India#readme"
+    "@libsql/client": "^0.15.0"
+  }
 }

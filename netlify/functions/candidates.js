@@ -1,40 +1,6 @@
 // netlify/functions/candidates.js
-//
-// Phase 2A (parity-first):
-// - Client sends precomputed keys (strict/exact/loose) exactly as app.js does today.
-// - Server unions row_ids from index tables and returns minimal voter rows.
-//
-// Expected request JSON:
-// {
-//   "state_code": "S27",
-//   "ac_no": 1,
-//   "exact_on": true,
-//   "scope": "voter" | "relative" | "anywhere",
-//   "keys": {
-//     "strict_voter": ["0इम", "..."],
-//     "exact_voter":  ["0I", "..."],
-//     "loose_voter":  ["0I", "..."],
-//     "strict_relative": [...],
-//     "exact_relative": [...],
-//     "loose_relative": [...]
-//   },
-//   "max_candidates": 50000
-// }
-//
-// Response JSON:
-// {
-//   "ac_no": 1,
-//   "row_ids": [...],              // distinct candidate row_ids
-//   "rows": [                      // minimal worker payload rows
-//     { "row_id": 45274, "voter_name_raw":"...", "relative_name_raw":"...", "serial_no":"1" },
-//     ...
-//   ]
-// }
-
-import { createClient } from "@libsql/client";
-
-const DB_URL = process.env.TURSO_DATABASE_URL;
-const DB_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN;
+// Returns candidate row_ids for a given district + AC, using precomputed prefix index tables in Turso.
+// This keeps ALL fuzzy-ranking logic in worker.js (client-side). Server only does candidate generation.
 
 function json(statusCode, obj) {
   return {
@@ -42,135 +8,391 @@ function json(statusCode, obj) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "content-type",
-      "access-control-allow-methods": "POST,OPTIONS",
     },
     body: JSON.stringify(obj),
   };
 }
 
-function uniq(arr) {
-  return Array.from(new Set(arr));
+function text(statusCode, msg) {
+  return {
+    statusCode,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+    },
+    body: String(msg || ""),
+  };
 }
 
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+function safeParseJson(str) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return null;
+  }
+}
+
+function districtToDbSlug(idOrLabel) {
+  const s = String(idOrLabel ?? "").trim();
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .replace(/_/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function qIdent(name) {
+  // SQLite identifier quoting
+  return `"${String(name).replace(/"/g, '""')}"`;
+}
+
+function isUint8Array(v) {
+  return v && (v instanceof Uint8Array || (typeof Buffer !== "undefined" && Buffer.isBuffer(v)));
+}
+
+function decodeRowIds(val) {
+  if (val == null) return [];
+
+  // Already an array (rare)
+  if (Array.isArray(val)) {
+    return val.map((x) => Number(x)).filter(Number.isFinite);
+  }
+
+  // JSON/text
+  if (typeof val === "string") {
+    const s = val.trim();
+    if (!s) return [];
+    if (s.startsWith("[")) {
+      try {
+        const a = JSON.parse(s);
+        return Array.isArray(a) ? a.map((x) => Number(x)).filter(Number.isFinite) : [];
+      } catch {
+        return [];
+      }
+    }
+    return s
+      .split(",")
+      .map((x) => Number(String(x).trim()))
+      .filter(Number.isFinite);
+  }
+
+  // BLOB
+  if (isUint8Array(val) || val instanceof ArrayBuffer) {
+    const u8 = val instanceof ArrayBuffer ? new Uint8Array(val) : new Uint8Array(val);
+    if (!u8.length) return [];
+
+    // If it looks like text, try text decode
+    const b0 = u8[0];
+    if (b0 === 0x5b /* [ */ || b0 === 0x2d /* - */ || (b0 >= 0x30 && b0 <= 0x39)) {
+      try {
+        const txt = new TextDecoder("utf-8").decode(u8).trim();
+        if (txt.startsWith("[")) {
+          const a = JSON.parse(txt);
+          return Array.isArray(a) ? a.map((x) => Number(x)).filter(Number.isFinite) : [];
+        }
+        return txt
+          .split(",")
+          .map((x) => Number(String(x).trim()))
+          .filter(Number.isFinite);
+      } catch {
+        // fall through to binary decode
+      }
+    }
+
+    // Binary decode: try 64-bit little endian, else 32-bit little endian
+    try {
+      if (u8.length % 8 === 0) {
+        const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+        const out = [];
+        for (let i = 0; i < u8.length; i += 8) {
+          const n = dv.getBigInt64(i, true);
+          const num = Number(n);
+          if (Number.isFinite(num)) out.push(num);
+        }
+        return out;
+      }
+      if (u8.length % 4 === 0) {
+        const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+        const out = [];
+        for (let i = 0; i < u8.length; i += 4) {
+          const num = dv.getInt32(i, true);
+          if (Number.isFinite(num)) out.push(num);
+        }
+        return out;
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+async function listTables(client) {
+  const rs = await client.execute(`SELECT name FROM sqlite_master WHERE type='table'`);
+  const set = new Set();
+  for (const r of rs.rows || []) set.add(String(r.name));
+  return set;
+}
+
+function pickExistingTable(tablesSet, candidates) {
+  for (const name of candidates) if (tablesSet.has(name)) return name;
+  return "";
+}
+
+async function getIndexTableNames(client) {
+  const tables = await listTables(client);
+
+  // Most likely (from our build scripts)
+  const strictVoter = pickExistingTable(tables, ["idx_voter", "idx_voter_strict", "index_prefix_3_voter"]);
+  const strictRel = pickExistingTable(tables, ["idx_relative", "idx_relative_strict", "index_prefix_3_relative"]);
+
+  const exactVoter = pickExistingTable(tables, ["idx_exact_voter", "idx_voter_exact", "index_exact_prefix_2_voter"]);
+  const exactRel = pickExistingTable(tables, ["idx_exact_relative", "idx_relative_exact", "index_exact_prefix_2_relative"]);
+
+  const looseVoter = pickExistingTable(tables, ["idx_loose_voter", "idx_voter_loose", "index_loose_prefix_2_voter"]);
+  const looseRel = pickExistingTable(tables, ["idx_loose_relative", "idx_relative_loose", "index_loose_prefix_2_relative"]);
+
+  return { strictVoter, strictRel, exactVoter, exactRel, looseVoter, looseRel };
+}
+
+async function getIndexCols(client, tableName) {
+  const rs = await client.execute(`PRAGMA table_info(${qIdent(tableName)})`);
+  const cols = new Set((rs.rows || []).map((r) => String(r.name)));
+
+  const acCol = cols.has("ac") ? "ac" : (cols.has("AC No") ? "AC No" : (cols.has("ac_no") ? "ac_no" : "ac"));
+  const keyCol = cols.has("key") ? "key" : (cols.has("Key") ? "Key" : "key");
+  const rowIdsCol = cols.has("row_ids") ? "row_ids" : (cols.has("rowIds") ? "rowIds" : (cols.has("rowids") ? "rowids" : "row_ids"));
+
+  return { acCol, keyCol, rowIdsCol };
+}
+
+async function postingsToHitCountMap(client, tableName, ac, keys) {
+  const out = new Map();
+  if (!tableName || !keys || !keys.length) return out;
+
+  // Hard limits to protect the function
+  if (keys.length > 200) keys = keys.slice(0, 200);
+
+  const { acCol, keyCol, rowIdsCol } = await getIndexCols(client, tableName);
+
+  const placeholders = keys.map(() => "?").join(",");
+  const sql = `SELECT ${qIdent(keyCol)} AS k, ${qIdent(rowIdsCol)} AS r FROM ${qIdent(tableName)} WHERE ${qIdent(acCol)} = ? AND ${qIdent(keyCol)} IN (${placeholders})`;
+  const args = [ac, ...keys];
+
+  const rs = await client.execute({ sql, args });
+
+  for (const row of rs.rows || []) {
+    const rids = decodeRowIds(row.r);
+    for (const rid of rids) {
+      out.set(rid, (out.get(rid) || 0) + 1);
+    }
+  }
+
   return out;
 }
 
-function requireEnv() {
-  if (!DB_URL || !DB_AUTH_TOKEN) {
-    throw new Error("Missing TURSO_DATABASE_URL or TURSO_AUTH_TOKEN");
+function mapToMeta(hitMap, keysLen) {
+  const meta = new Map();
+  const need = Number(keysLen) || 0;
+  for (const [rid, hit] of hitMap.entries()) {
+    meta.set(rid, { hit_count: hit, and_hit: need > 0 ? hit === need : false });
   }
+  return meta;
 }
 
-function tableFor(kind) {
-  // kind examples: "strict_voter", "exact_relative", "loose_voter"
-  if (kind === "strict_voter") return "idx_prefix3_voter";
-  if (kind === "strict_relative") return "idx_prefix3_relative";
-  if (kind === "exact_voter") return "idx_exact2_voter";
-  if (kind === "exact_relative") return "idx_exact2_relative";
-  if (kind === "loose_voter") return "idx_loose2_voter";
-  if (kind === "loose_relative") return "idx_loose2_relative";
-  return null;
+function unionKeys(...maps) {
+  const s = new Set();
+  for (const m of maps) for (const k of m.keys()) s.add(k);
+  return s;
 }
 
-function kindsForScope(scope) {
-  if (scope === "voter") return ["strict_voter", "exact_voter", "loose_voter"];
-  if (scope === "relative") return ["strict_relative", "exact_relative", "loose_relative"];
-  // anywhere
-  return [
-    "strict_voter", "exact_voter", "loose_voter",
-    "strict_relative", "exact_relative", "loose_relative",
-  ];
+let CLIENT_CACHE = new Map(); // key -> { client, idxNames }
+
+async function getClientForDistrict(districtSlug) {
+  const groupMap = {
+    // Account A (sujay-k1)
+    "chatra": "A",
+    "hazaribagh": "A",
+    "deoghar": "A",
+    "jamtara": "A",
+    "dumka": "A",
+    "kodarma": "A",
+    "pakur": "A",
+    "ramgarh": "A",
+    "giridih": "A",
+    "sahebganj": "A",
+    "godda": "A",
+
+    // Account B (sujay-k2)
+    "bokaro": "B",
+    "khunti": "B",
+    "dhanbad": "B",
+    "ranchi": "B",
+    "east-singhbhum": "B",
+    "saraikela-kharswan": "B",
+    "gumla": "B",
+    "west-singhbhum": "B",
+
+    // Account C (sujay-k3)
+    "garhwa": "C",
+    "lohardaga": "C",
+    "simdega": "C",
+    "latehar": "C",
+    "palamu": "C",
+  };
+
+  const group = groupMap[districtSlug];
+  if (!group) throw new Error(`Unknown district group for "${districtSlug}"`);
+
+  const org = group === "A" ? (process.env.TURSO_ORG_A || "sujay-k1")
+    : group === "B" ? (process.env.TURSO_ORG_B || "sujay-k2")
+    : (process.env.TURSO_ORG_C || "sujay-k3");
+
+  const token = group === "A" ? process.env.TURSO_TOKEN_A
+    : group === "B" ? process.env.TURSO_TOKEN_B
+    : process.env.TURSO_TOKEN_C;
+
+  if (!token) throw new Error(`Missing TURSO_TOKEN_${group}`);
+
+  const region = process.env.TURSO_REGION || "aws-ap-south-1";
+  const hostSuffix = process.env.TURSO_HOST_SUFFIX || "turso.io";
+
+  const dbName = `s27-${districtSlug}`;
+  const url = `libsql://${dbName}-${org}.${region}.${hostSuffix}`;
+
+  const cacheKey = `${group}:${url}`;
+  const cached = CLIENT_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  const { createClient } = await import("@libsql/client");
+  const client = createClient({ url, authToken: token });
+
+  const idxNames = await getIndexTableNames(client);
+
+  const entry = { client, idxNames };
+  CLIENT_CACHE.set(cacheKey, entry);
+  return entry;
 }
 
-export async function handler(event) {
-  if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
-  if (event.httpMethod !== "POST") return json(405, { error: "POST only" });
-
+exports.handler = async (event) => {
   try {
-    requireEnv();
-    const client = createClient({ url: DB_URL, authToken: DB_AUTH_TOKEN });
-
-    const body = JSON.parse(event.body || "{}");
-
-    const state_code = String(body.state_code || "S27");
-    const ac_no = Number(body.ac_no);
-    const exact_on = !!body.exact_on;
-    const scope = String(body.scope || "anywhere");
-    const keys = body.keys || {};
-    const max_candidates = Number(body.max_candidates || 50000);
-
-    if (!Number.isFinite(ac_no) || ac_no <= 0) {
-      return json(400, { error: "ac_no must be a positive number" });
+    if (event.httpMethod === "OPTIONS") {
+      return {
+        statusCode: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "POST,OPTIONS",
+          "access-control-allow-headers": "content-type",
+        },
+        body: "",
+      };
     }
 
-    const wantKinds = kindsForScope(scope);
+    if (event.httpMethod !== "POST") return text(405, "Method Not Allowed");
 
-    // Parity rule: if exact_on === true, current app.js skips loose stage
-    // (your earlier contract: loose skipped when exactOn=true).
-    const effectiveKinds = exact_on
-      ? wantKinds.filter(k => !k.startsWith("loose_"))
-      : wantKinds;
+    const body = safeParseJson(event.body || "");
+    if (!body) return text(400, "Invalid JSON");
 
-    // Collect row_ids by querying index tables for each kind
-    const rowIdSet = new Set();
+    const district = districtToDbSlug(body.district);
+    const ac = Number(body.ac);
+    const scope = String(body.scope || "voter");
+    const exactOn = !!body.exactOn;
 
-    for (const kind of effectiveKinds) {
-      const t = tableFor(kind);
-      if (!t) continue;
-      const klist = Array.isArray(keys[kind]) ? keys[kind] : [];
-      if (klist.length === 0) continue;
+    const strictKeys = Array.isArray(body.strictKeys) ? body.strictKeys.map(String) : [];
+    const exactKeys = Array.isArray(body.exactKeys) ? body.exactKeys.map(String) : [];
+    const looseKeys = Array.isArray(body.looseKeys) ? body.looseKeys.map(String) : [];
 
-      // libsql parameter limits are safer with chunking
-      for (const kchunk of chunk(uniq(klist), 200)) {
-        const placeholders = kchunk.map(() => "?").join(",");
-        const sql = `
-          SELECT row_id
-          FROM ${t}
-          WHERE ac_no = ?
-            AND key IN (${placeholders})
-        `;
-        const params = [ac_no, ...kchunk];
-        const rs = await client.execute({ sql, args: params });
-        for (const r of rs.rows) {
-          rowIdSet.add(Number(r.row_id));
-          if (rowIdSet.size >= max_candidates) break;
-        }
+    if (!district) return text(400, "Missing district");
+    if (!Number.isFinite(ac)) return text(400, "Invalid ac");
+
+    const { client, idxNames } = await getClientForDistrict(district);
+
+    const keysStrict = strictKeys.filter(Boolean);
+    const keysExact = exactKeys.filter(Boolean);
+    const keysLoose = looseKeys.filter(Boolean);
+
+    let strictVoterHits = new Map(), strictRelHits = new Map();
+    let exactVoterHits = new Map(), exactRelHits = new Map();
+    let looseVoterHits = new Map(), looseRelHits = new Map();
+
+    if (scope === "voter") {
+      if (keysStrict.length && idxNames.strictVoter) strictVoterHits = await postingsToHitCountMap(client, idxNames.strictVoter, ac, keysStrict);
+      if (keysExact.length && idxNames.exactVoter) exactVoterHits = await postingsToHitCountMap(client, idxNames.exactVoter, ac, keysExact);
+      if (keysLoose.length && idxNames.looseVoter) looseVoterHits = await postingsToHitCountMap(client, idxNames.looseVoter, ac, keysLoose);
+    } else if (scope === "relative") {
+      if (keysStrict.length && idxNames.strictRel) strictRelHits = await postingsToHitCountMap(client, idxNames.strictRel, ac, keysStrict);
+      if (keysExact.length && idxNames.exactRel) exactRelHits = await postingsToHitCountMap(client, idxNames.exactRel, ac, keysExact);
+      if (keysLoose.length && idxNames.looseRel) looseRelHits = await postingsToHitCountMap(client, idxNames.looseRel, ac, keysLoose);
+    } else {
+      if (keysStrict.length) {
+        if (idxNames.strictVoter) strictVoterHits = await postingsToHitCountMap(client, idxNames.strictVoter, ac, keysStrict);
+        if (idxNames.strictRel) strictRelHits = await postingsToHitCountMap(client, idxNames.strictRel, ac, keysStrict);
       }
-
-      if (rowIdSet.size >= max_candidates) break;
-    }
-
-    const row_ids = Array.from(rowIdSet);
-
-    // Fetch minimal worker payload rows
-    const rows = [];
-    for (const idChunk of chunk(row_ids, 200)) {
-      const placeholders = idChunk.map(() => "?").join(",");
-      const sql = `
-        SELECT row_id, voter_name_raw, relative_name_raw, serial_no
-        FROM voters
-        WHERE ac_no = ?
-          AND row_id IN (${placeholders})
-      `;
-      const params = [ac_no, ...idChunk];
-      const rs = await client.execute({ sql, args: params });
-      for (const r of rs.rows) {
-        rows.push({
-          row_id: Number(r.row_id),
-          voter_name_raw: r.voter_name_raw ?? "",
-          relative_name_raw: r.relative_name_raw ?? "",
-          serial_no: r.serial_no ?? "",
-        });
+      if (keysExact.length) {
+        if (idxNames.exactVoter) exactVoterHits = await postingsToHitCountMap(client, idxNames.exactVoter, ac, keysExact);
+        if (idxNames.exactRel) exactRelHits = await postingsToHitCountMap(client, idxNames.exactRel, ac, keysExact);
+      }
+      if (keysLoose.length) {
+        if (idxNames.looseVoter) looseVoterHits = await postingsToHitCountMap(client, idxNames.looseVoter, ac, keysLoose);
+        if (idxNames.looseRel) looseRelHits = await postingsToHitCountMap(client, idxNames.looseRel, ac, keysLoose);
       }
     }
 
-    return json(200, { ac_no, row_ids, rows });
+    const strictVoterMeta = mapToMeta(strictVoterHits, keysStrict.length);
+    const strictRelMeta = mapToMeta(strictRelHits, keysStrict.length);
+    const exactVoterMeta = mapToMeta(exactVoterHits, keysExact.length);
+    const exactRelMeta = mapToMeta(exactRelHits, keysExact.length);
+    const looseVoterMeta = mapToMeta(looseVoterHits, keysLoose.length);
+    const looseRelMeta = mapToMeta(looseRelHits, keysLoose.length);
+
+    const all = unionKeys(strictVoterHits, strictRelHits, exactVoterHits, exactRelHits, looseVoterHits, looseRelHits);
+    const candidates = Array.from(all).sort((a, b) => a - b);
+
+    const metaByRow = {};
+    for (const rid of candidates) {
+      const sv = strictVoterMeta.get(rid);
+      const sr = strictRelMeta.get(rid);
+      const ev = exactVoterMeta.get(rid);
+      const er = exactRelMeta.get(rid);
+      const lv = looseVoterMeta.get(rid);
+      const lr = looseRelMeta.get(rid);
+
+      const merged_hit_count =
+        (sv?.hit_count || 0) +
+        (sr?.hit_count || 0) +
+        (ev?.hit_count || 0) +
+        (er?.hit_count || 0) +
+        (lv?.hit_count || 0) +
+        (lr?.hit_count || 0);
+
+      metaByRow[String(rid)] = {
+        strict_voter_hit_count: sv?.hit_count || 0,
+        strict_voter_and_hit: !!sv?.and_hit,
+        strict_rel_hit_count: sr?.hit_count || 0,
+        strict_rel_and_hit: !!sr?.and_hit,
+
+        exact_voter_hit_count: ev?.hit_count || 0,
+        exact_voter_and_hit: !!ev?.and_hit,
+        exact_rel_hit_count: er?.hit_count || 0,
+        exact_rel_and_hit: !!er?.and_hit,
+
+        loose_voter_hit_count: lv?.hit_count || 0,
+        loose_voter_and_hit: !!lv?.and_hit,
+        loose_rel_hit_count: lr?.hit_count || 0,
+        loose_rel_and_hit: !!lr?.and_hit,
+
+        merged_hit_count,
+        merged_and_hit: (sv?.and_hit || sr?.and_hit || ev?.and_hit || er?.and_hit || lv?.and_hit || lr?.and_hit) ? true : false,
+      };
+    }
+
+    return json(200, { candidates, metaByRow });
   } catch (e) {
-    return json(500, { error: String(e?.message || e) });
+    console.error("candidates error:", e);
+    return text(500, e && e.message ? e.message : "Server error");
   }
-}
+};
