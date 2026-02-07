@@ -1,2 +1,8 @@
-node_modules
+data/
+*.parquet
+*.duckdb
+*.db
+node_modules/
+out_district_dbs/
 .env
+.DS_Store
