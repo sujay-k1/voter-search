@@ -1177,6 +1177,8 @@ async function getCandidatesForQuery(q, scope, exactOn) {
   }
   const outCandidates = candidates.length ? candidates : Array.from(metaByRow.keys());
   return { candidates: outCandidates, metaByRow };
+  console.log("CANDIDATES PAYLOAD", { districtId, ac, scope, exactOn, strictKeys, exactKeys, looseKeys });
+
 }
 
 async function fetchRowsByIds(rowIds) {
