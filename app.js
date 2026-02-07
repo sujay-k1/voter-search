@@ -170,7 +170,7 @@ const els = {
 // ---------- i18n ----------
 function initI18n() {
   i18n = createI18n();
-  lang = i18n.getSavedLangOrDefault();
+  lang = i18n.loadSavedLangOrDefault();
   t = i18n.t;
   updateLangUI();
 }
