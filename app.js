@@ -1090,38 +1090,169 @@ function setDistrictById(id) {
 }
 
 // ---------- Query helpers ----------
-function norm(s) {
-  return String(s || "").trim();
-}
+// ---------- Query helpers ----------
 
-function prefixN(s, n) {
-  s = String(s || "").trim();
-  if (!s) return "";
-  return s.slice(0, n);
+// ---------------- Strict normalization ----------------
+function norm(s) {
+  if (s == null) return "";
+  s = String(s).replace(/\u00a0/g, " ").trim();
+  s = s.replace(/[.,;:|/\\()[\]{}<>"'~!@#$%^&*_+=?-]/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
 }
 
 function tokenize(s) {
   s = norm(s);
   if (!s) return [];
-  return s.split(/\s+/g).filter(Boolean);
+  return s.split(" ").filter(Boolean);
+}
+
+function prefixN(token, n) {
+  token = (token || "").replace(/\s+/g, "");
+  if (!token) return "";
+  return token.length >= n ? token.slice(0, n) : token;
+}
+
+// ---------------- Exact index normalization (vowel/matra tolerant) ----------------
+const INDEP_VOWEL_MAP = new Map(
+  Object.entries({
+    अ: "A",
+    आ: "A",
+    इ: "I",
+    ई: "I",
+    उ: "U",
+    ऊ: "U",
+    ए: "E",
+    ऐ: "E",
+    ओ: "O",
+    औ: "O",
+    ऋ: "R",
+    ॠ: "R",
+    ऌ: "L",
+    ॡ: "L",
+  })
+);
+
+const MATRA_MAP = new Map(
+  Object.entries({
+    "ा": "A",
+    "ि": "I",
+    "ी": "I",
+    "ु": "U",
+    "ू": "U",
+    "े": "E",
+    "ै": "E",
+    "ो": "O",
+    "ौ": "O",
+    "ृ": "R",
+    "ॄ": "R",
+    "ॢ": "L",
+    "ॣ": "L",
+  })
+);
+
+const REMOVE_MARKS = new Set(["ँ", "ं", "ः", "़", "्"]);
+
+function normExactIndex(s) {
+  s = norm(s);
+  if (!s) return "";
+  let out = "";
+  for (const ch of s) {
+    if (REMOVE_MARKS.has(ch)) continue;
+    if (INDEP_VOWEL_MAP.has(ch)) out += INDEP_VOWEL_MAP.get(ch);
+    else if (MATRA_MAP.has(ch)) out += MATRA_MAP.get(ch);
+    else out += ch;
+  }
+  out = out.replace(/\s+/g, " ").trim();
+  return out;
 }
 
 function tokenizeExactIndex(s) {
-  return tokenize(s);
+  s = normExactIndex(s);
+  if (!s) return [];
+  return s.split(" ").filter(Boolean);
+}
+
+// ---------------- Loose normalization (candidate recall only) ----------------
+const CONFUSABLE_SETS = [
+  ["द", "ढ", "ह"],
+  ["ब", "व"],
+  ["स", "श"],
+  ["त", "न"],
+  ["ड", "ढ"],
+];
+
+const CONF_MAP = (() => {
+  const m = new Map();
+  for (const set of CONFUSABLE_SETS) {
+    const rep = set[0];
+    for (const ch of set) m.set(ch, rep);
+  }
+  return m;
+})();
+
+function applyConfusableFoldLoose(s) {
+  if (!s) return "";
+  let out = "";
+  for (const ch of s) out += CONF_MAP.get(ch) || ch;
+  // OCR-ish visual confusion we used earlier
+  out = out.replace(/रव/g, "ख");
+  return out;
+}
+
+function normLoose(s) {
+  s = norm(s);
+  if (!s) return "";
+  let out = "";
+  for (const ch of s) {
+    if (INDEP_VOWEL_MAP.has(ch)) out += INDEP_VOWEL_MAP.get(ch);
+    else if (MATRA_MAP.has(ch)) out += MATRA_MAP.get(ch);
+    else if (REMOVE_MARKS.has(ch)) continue;
+    else out += ch;
+  }
+  out = applyConfusableFoldLoose(out);
+  out = out.replace(/\s+/g, " ").trim();
+  return out;
 }
 
 function tokenizeLoose(s) {
-  return tokenize(s);
+  s = normLoose(s);
+  if (!s) return [];
+  return s.split(" ").filter(Boolean);
 }
 
+// ---------------- Join variants (query side too) ----------------
 function joinVariantsTokens(tokens) {
-  // keep as before (safe fallback)
-  if (!Array.isArray(tokens)) return [];
-  if (tokens.length < 2) return [];
-  const out = [];
-  for (let i = 0; i < tokens.length - 1; i++) out.push(tokens[i] + tokens[i + 1]);
-  return out;
+  const toks = tokens.slice().filter(Boolean);
+  const n = toks.length;
+  if (n <= 1) return [];
+  const out = new Set();
+
+  if (n <= 3) {
+    for (let i = 0; i < n - 1; i++) {
+      const merged = toks
+        .slice(0, i)
+        .concat([toks[i] + toks[i + 1]])
+        .concat(toks.slice(i + 2));
+      out.add(merged.join(" "));
+    }
+    out.add(toks.join(""));
+    const final = new Set();
+    for (const s of out) final.add(s.replace(/\s+/g, ""));
+    return Array.from(final);
+  }
+
+  for (let i = 0; i < n - 1; i++) {
+    const merged = toks
+      .slice(0, i)
+      .concat([toks[i] + toks[i + 1]])
+      .concat(toks.slice(i + 2));
+    out.add(merged.join(" ").replace(/\s+/g, ""));
+  }
+  out.add(toks.join(""));
+  return Array.from(out);
 }
+
 
 function buildKeysFromTokens(tokens, prefixLen) {
   const keys = tokens.map((t) => prefixN(t, prefixLen)).filter(Boolean);
@@ -1176,8 +1307,8 @@ async function getCandidatesForQuery(q, scope, exactOn) {
     }
   }
   const outCandidates = candidates.length ? candidates : Array.from(metaByRow.keys());
-  return { candidates: outCandidates, metaByRow };
   console.log("CANDIDATES PAYLOAD", { districtId, ac, scope, exactOn, strictKeys, exactKeys, looseKeys });
+  return { candidates: outCandidates, metaByRow };
 
 }
 
