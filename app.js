@@ -39,847 +39,229 @@ const DISPLAY_COLS = [
   "Age",
   "House No",
   "Serial No",
-  "Page No",
-  "Part No",
   "ID",
+  "Part No",
+  "Page No",
+  "Source PDF",
 ];
 
-const STICKY_COL_KEY = "Voter Name";
-
-// search scope state
+// scopes
 const SCOPE = {
   VOTER: "voter",
   RELATIVE: "relative",
   ANYWHERE: "anywhere",
 };
 
-let searchScope = SCOPE.VOTER;
+// ---------- i18n ----------
+let i18n = createI18n();
+function t(key, vars) {
+  return i18n.t(key, vars);
+}
 
-// district + AC selection state
-let districtManifest = null;
-let currentDistrictId = "";
-let currentDistrictLabel = "";
-let districtACsAll = []; // all ACs for district
-let selectedACs = new Set(); // subset selected (empty => all)
+// ---------- DOM ----------
+const $ = (id) => document.getElementById(id);
 
-// per-AC loaded state (views point to current AC)
+const landing = $("landing");
+const results = $("results");
+
+const districtSelect = $("districtSelect");
+const acSelect = $("acSelect"); // multi-select (or single)
+const qLanding = $("qLanding");
+const qResults = $("qResults");
+
+const searchBtnLanding = $("searchBtnLanding");
+const searchBtnResults = $("searchBtnResults");
+
+const statusEl = $("status");
+const barWrap = $("barWrap");
+const bar = $("bar");
+
+const scopeTabs = document.querySelectorAll("[data-scope]");
+const includeTypingLanding = $("includeTypingLanding");
+const includeTypingResults = $("includeTypingResults");
+
+const langBtnHi = $("langHi");
+const langBtnHinglish = $("langHinglish");
+const langBtnEn = $("langEn");
+
+const filtersWrap = $("filtersWrap");
+const filterGender = $("filterGender");
+const filterMinAge = $("filterMinAge");
+const filterMaxAge = $("filterMaxAge");
+const filterQuery = $("filterQuery");
+
+const sortSelect = $("sortSelect");
+const pageSizeSelect = $("pageSizeSelect");
+const pagerPrev = $("pagerPrev");
+const pagerNext = $("pagerNext");
+const pagerInfo = $("pagerInfo");
+
+const tableWrap = $("tableWrap");
+const tableHead = $("tableHead");
+const tableBody = $("tableBody");
+
+const backBtn = $("backBtn");
+
+// ---------- State ----------
+let manifest = null; // district_manifest.json
 let current = {
-  state: STATE_CODE_DEFAULT,
+  districtId: "",
+  districtLabel: "",
   ac: null,
-  meta: null,
-  loaded: false, // "AC loaded" (views ready)
-  lastQuery: "",
 };
 
-// Ranking results use composite key (ac:row_id) so row_id collisions across ACs are safe
-let rankedByRelevance = []; // full [{key, ac, row_id, score}]
-let filteredBase = []; // after filters, in relevance order
-let rankedView = []; // after sort, for paging
+let searchScope = SCOPE.VOTER;
+
+let rankedByRelevance = []; // [{ key, ac, row_id, score }]
+let filteredBase = []; // subset of rankedByRelevance after filters
+let rankedView = []; // current sorted view (may be filtered & sorted)
 let page = 1;
 
 let pageSize = PAGE_SIZE_DESKTOP_DEFAULT;
 
-// Used to cancel district-preload if user switches district quickly
-let districtPreloadToken = 0;
-
-let ageMap = null; // Map(key -> ageNumber|null)
-let displayCache = new Map(); // Map(key -> rowObject)
-
-// score cache for age/gender filters
-let scoreCache = new Map(); // Map(key -> { ageRaw, ageParsed, genderRaw, genderBucket })
-
-// Sort mode (popover)
-const SORT = {
-  RELEVANCE: "relevance",
-  AGE_ASC: "age_asc",
-  AGE_DESC: "age_desc",
-};
-let sortMode = SORT.RELEVANCE;
-
-// District popover search
-let districtQuery = "";
-
-// ---------------- Transliteration + Voice (kept) ----------------
-const TRANSLIT = {
-  endpoint: "https://inputtools.google.com/request",
-  itc: "mr-t-i0-und",
-  num: 5,
-  debounceMs: 120,
-};
-
-function isDevanagariChar(ch) {
-  if (!ch) return false;
-  const cp = ch.codePointAt(0);
-  return cp >= 0x0900 && cp <= 0x097f;
-}
-function containsDevanagari(s) {
-  if (!s) return false;
-  return /[\u0900-\u097F]/.test(String(s));
-}
-function isLatinChar(ch) {
-  return /^[A-Za-z]$/.test(ch || "");
-}
-function detectScriptModeFromText(s) {
-  s = String(s || "");
-  if (!s) return "nonlatin";
-  if (containsDevanagari(s)) return "nonlatin";
-  if (/[A-Za-z]/.test(s)) return "latin";
-  return "nonlatin";
-}
-
-function isIOS() {
-  const ua = navigator.userAgent || "";
-  const iOS = /iP(hone|od|ad)/.test(ua);
-  const iPadOS = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
-  return iOS || iPadOS;
-}
-function isSafari() {
-  const ua = navigator.userAgent || "";
-  const isWebKit = /AppleWebKit/.test(ua);
-  const isChrome = /CriOS|Chrome/.test(ua);
-  const isFirefox = /FxiOS|Firefox/.test(ua);
-  return isWebKit && !isChrome && !isFirefox;
-}
-function isIOSSafari() {
-  return isIOS() && isSafari();
-}
-
-function setInputValueNoRerender(inputEl, v) {
-  inputEl.value = v;
-  syncSearchButtonState();
-}
-
-async function fetchGoogleSuggestions(text) {
-  const params = new URLSearchParams();
-  params.set("text", text);
-  params.set("itc", TRANSLIT.itc);
-  params.set("num", String(TRANSLIT.num));
-  params.set("cp", "0");
-  params.set("cs", "1");
-  params.set("ie", "utf-8");
-  params.set("oe", "utf-8");
-  params.set("app", "test");
-
-  const url = `${TRANSLIT.endpoint}?${params.toString()}`;
-
-  const resp = await fetch(url, { method: "GET" });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const json = await resp.json();
-  if (!Array.isArray(json) || json[0] !== "SUCCESS") return [];
-  const payload = json[1];
-  if (!Array.isArray(payload) || !payload.length) return [];
-  const first = payload[0];
-  if (!Array.isArray(first) || first.length < 2) return [];
-  const cands = first[1];
-  if (!Array.isArray(cands)) return [];
-  return cands.map((x) => String(x || "").trim()).filter(Boolean);
-}
-
-function ensureTranslitPopoverSkeleton(popEl) {
-  if (!popEl || popEl.dataset.built === "1") return;
-
-  popEl.innerHTML = "";
-
-  const list = document.createElement("div");
-  list.dataset.role = "translit-list";
-  popEl.appendChild(list);
-
-  popEl.dataset.built = "1";
-}
-
-function openTranslitPopover(popEl, anchorWrapEl) {
-  if (!popEl) return;
-
-  popEl.style.display = "block";
-  popEl.setAttribute("aria-hidden", "false");
-
-  if (anchorWrapEl) {
-    const w = anchorWrapEl.getBoundingClientRect().width;
-    if (w && Number.isFinite(w))
-      popEl.style.minWidth = `${Math.max(240, Math.floor(w))}px`;
-  }
-}
-
-function closeTranslitPopover(popEl) {
-  if (!popEl) return;
-  popEl.style.display = "none";
-  popEl.setAttribute("aria-hidden", "true");
-  const list = popEl.querySelector("div[data-role='translit-list']");
-  if (list) list.innerHTML = "";
-  popEl.dataset.activeIndex = "-1";
-}
-
-function renderTranslitList(popEl, items) {
-  ensureTranslitPopoverSkeleton(popEl);
-  const list = popEl.querySelector("div[data-role='translit-list']");
-  if (!list) return;
-
-  list.innerHTML = "";
-
-  items.forEach((txt, idx) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "option";
-    btn.textContent = txt;
-    btn.dataset.idx = String(idx);
-    list.appendChild(btn);
-  });
-
-  popEl.dataset.activeIndex = items.length ? "0" : "-1";
-}
-
-function clamp(n, a, b) {
-  return Math.max(a, Math.min(b, n));
-}
-
-function highlightActiveOption(popEl) {
-  const list = popEl.querySelector("div[data-role='translit-list']");
-  if (!list) return;
-  const idx = Number(popEl.dataset.activeIndex || -1);
-  const btns = Array.from(list.querySelectorAll("button.option"));
-  btns.forEach((b, i) => b.classList.toggle("active", i === idx));
-  if (idx >= 0 && idx < btns.length) btns[idx].scrollIntoView({ block: "nearest" });
-}
-
-function createEnhancerForInput(kind /* "landing" | "results" */, inputEl, wrapEl, micBtnEl, chipEl, popEl) {
-  if (!inputEl || !wrapEl || !popEl) return null;
-
-  let lastMode = "nonlatin";
-  let debounceTimer = null;
-  let lastQueryText = "";
-  let suggestions = [];
-  let suppressSuggestDuringSpeech = false;
-
-  let recognizer = null;
-  let isListening = false;
-
-  function syncDisabled() {
-    const disabled = inputEl.disabled || inputEl.hasAttribute("disabled");
-    if (micBtnEl) micBtnEl.disabled = disabled;
-    if (disabled) {
-      closeTranslitPopover(popEl);
-      setListeningUI(false);
-    }
-  }
-
-  function setListeningUI(on) {
-    isListening = !!on;
-    if (!chipEl) return;
-    chipEl.style.display = on ? "inline-flex" : "none";
-  }
-
-  async function refreshSuggestions(force = false) {
-    if (suppressSuggestDuringSpeech) return;
-
-    const text = String(inputEl.value || "");
-    const mode = detectScriptModeFromText(text);
-    lastMode = mode;
-
-    if (mode !== "latin") {
-      closeTranslitPopover(popEl);
-      suggestions = [];
-      lastQueryText = "";
-      return;
-    }
-
-    const trimmed = text.trim();
-    if (!trimmed) {
-      closeTranslitPopover(popEl);
-      suggestions = [];
-      lastQueryText = "";
-      return;
-    }
-
-    if (!force && trimmed === lastQueryText) return;
-
-    lastQueryText = trimmed;
-
-    try {
-      suggestions = await fetchGoogleSuggestions(trimmed);
-    } catch (_e) {
-      suggestions = [];
-    }
-
-    if (!suggestions.length) {
-      closeTranslitPopover(popEl);
-      return;
-    }
-
-    renderTranslitList(popEl, suggestions);
-    openTranslitPopover(popEl, wrapEl);
-    highlightActiveOption(popEl);
-  }
-
-  function scheduleSuggest() {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => refreshSuggestions(false), TRANSLIT.debounceMs);
-  }
-
-  inputEl.addEventListener("input", () => {
-    scheduleSuggest();
-  });
-
-  inputEl.addEventListener("keydown", (ev) => {
-    const open = popEl.style.display === "block";
-    if (!open) return;
-
-    const idx = Number(popEl.dataset.activeIndex || -1);
-    const max = suggestions.length - 1;
-
-    if (ev.key === "ArrowDown") {
-      ev.preventDefault();
-      popEl.dataset.activeIndex = String(clamp(idx + 1, 0, max));
-      highlightActiveOption(popEl);
-    } else if (ev.key === "ArrowUp") {
-      ev.preventDefault();
-      popEl.dataset.activeIndex = String(clamp(idx - 1, 0, max));
-      highlightActiveOption(popEl);
-    } else if (ev.key === "Enter") {
-      if (idx >= 0 && idx < suggestions.length) {
-        ev.preventDefault();
-        setInputValueNoRerender(inputEl, suggestions[idx]);
-        closeTranslitPopover(popEl);
-      }
-    } else if (ev.key === "Escape") {
-      ev.preventDefault();
-      closeTranslitPopover(popEl);
-    }
-  });
-
-  popEl.addEventListener("click", (ev) => {
-    const btn = ev.target.closest("button.option");
-    if (!btn) return;
-    const idx = Number(btn.dataset.idx || -1);
-    if (idx >= 0 && idx < suggestions.length) {
-      setInputValueNoRerender(inputEl, suggestions[idx]);
-      closeTranslitPopover(popEl);
-    }
-  });
-
-  document.addEventListener("click", (ev) => {
-    if (popEl.style.display !== "block") return;
-    if (wrapEl.contains(ev.target) || popEl.contains(ev.target)) return;
-    closeTranslitPopover(popEl);
-  });
-
-  // voice
-  function supportsSpeech() {
-    return "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
-  }
-
-  function startListening() {
-    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Ctor) return;
-
-    recognizer = new Ctor();
-    recognizer.continuous = false;
-    recognizer.interimResults = true;
-    recognizer.lang = "hi-IN";
-
-    suppressSuggestDuringSpeech = true;
-    setListeningUI(true);
-
-    recognizer.onresult = (ev) => {
-      let finalText = "";
-      let interimText = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const res = ev.results[i];
-        if (res.isFinal) finalText += res[0].transcript;
-        else interimText += res[0].transcript;
-      }
-      const combined = (finalText || interimText || "").trim();
-      if (combined) {
-        setInputValueNoRerender(inputEl, combined);
-        if (finalText) {
-          setTimeout(() => {
-            suppressSuggestDuringSpeech = false;
-            refreshSuggestions(true);
-          }, 10);
-        }
-      }
-    };
-
-    recognizer.onerror = (_ev) => {
-      setListeningUI(false);
-      suppressSuggestDuringSpeech = false;
-    };
-
-    recognizer.onend = () => {
-      setListeningUI(false);
-      suppressSuggestDuringSpeech = false;
-    };
-
-    recognizer.start();
-  }
-
-  function stopListening() {
-    try {
-      recognizer?.stop?.();
-    } catch (_e) {}
-    setListeningUI(false);
-    suppressSuggestDuringSpeech = false;
-  }
-
-  if (micBtnEl) {
-    micBtnEl.addEventListener("click", () => {
-      if (inputEl.disabled) return;
-
-      if (!supportsSpeech()) return;
-
-      if (isListening) {
-        stopListening();
-        return;
-      }
-      startListening();
-    });
-  }
-
-  return {
-    close: () => closeTranslitPopover(popEl),
-    syncDisabled,
-  };
-}
-
-// ---------------- i18n ----------------
-const i18n = createI18n({ storageKey: "sir_lang", defaultLang: LANG.HI });
-const t = i18n.t;
-
-function applyTranslationsToDOM() {
-  document.querySelectorAll("[data-i18n]").forEach((el) => {
-    const k = el.getAttribute("data-i18n");
-    if (!k) return;
-    el.textContent = t(k);
-  });
-
-  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
-    const k = el.getAttribute("data-i18n-placeholder");
-    if (!k) return;
-    el.setAttribute("placeholder", t(k));
-  });
-
-  updateDistrictUI();
-  updateSelectedAcText();
-  setSortMode(sortMode);
-  renderSortPopover();
-  renderPageSizePopover();
-  renderFiltersPopoverRoot();
-
-  if (pageSizeBtn) {
-    const label = document.querySelector("[data-i18n='page_size_label']");
-    if (label) label.textContent = t("page_size_label");
-  }
-}
-
-function setLanguage(lang) {
-  const active = i18n.setLang(lang);
-
-  document.documentElement.lang = active === LANG.EN ? "en" : "hi";
-
-  const btnHi = $("langHi");
-  const btnHing = $("langHinglish");
-  const btnEn = $("langEn");
-
-  // Language buttons
-$("langHi")?.addEventListener("click", () => setLanguage(LANG.HI));
-$("langHinglish")?.addEventListener("click", () => setLanguage(LANG.HINGLISH));
-$("langEn")?.addEventListener("click", () => setLanguage(LANG.EN));
-
-
-  const all = [
-    { el: btnHi, lang: LANG.HI },
-    { el: btnHing, lang: LANG.HINGLISH },
-    { el: btnEn, lang: LANG.EN },
-  ];
-
-  for (const item of all) {
-    if (!item.el) continue;
-    const isActive = item.lang === active;
-    item.el.classList.toggle("active", isActive);
-    item.el.setAttribute("aria-pressed", isActive ? "true" : "false");
-    const check = item.el.querySelector(".langCheck");
-    if (check) check.textContent = isActive ? "✓" : "";
-  }
-
-  refreshChipLabels();
-  applyTranslationsToDOM();
-
-  if (!isResultsVisible() && (!current.lastQuery || !String(current.lastQuery).trim())) {
-    setStatus(t("status_select_district"));
-  }
-}
-
-function loadSavedLanguageOrDefault() {
-  // i18n.js API has differed across builds. Avoid hard-crash if helper name changed.
-  try {
-    if (i18n && typeof i18n.loadSavedLanguageOrDefault === "function") {
-      return i18n.loadSavedLanguageOrDefault();
-    }
-    if (i18n && typeof i18n.getSavedLangOrDefault === "function") {
-      return i18n.getSavedLangOrDefault();
-    }
-    if (i18n && typeof i18n.getSavedLanguageOrDefault === "function") {
-      return i18n.getSavedLanguageOrDefault();
-    }
-  } catch (_e) {}
-
-  // Fallback: read from localStorage using the same key passed into createI18n().
-  const key = "sir_lang";
-  try {
-    const v = localStorage.getItem(key);
-    if (v === LANG.HI || v === LANG.HINGLISH || v === LANG.EN) return v;
-  } catch (_e) {}
-  return LANG.HI;
-}
-
-function headerLabelForKey(k) {
-  switch (k) {
-    case "Voter Name":
-      return t("h_voter_name");
-    case "Relative Name":
-      return t("h_relative_name");
-    case "Relation":
-      return t("h_relation");
-    case "Gender":
-      return t("h_gender");
-    case "Age":
-      return t("h_age");
-    case "House No":
-      return t("h_house_no");
-    case "Serial No":
-      return t("h_serial_no");
-    case "Page No":
-      return t("h_page_no");
-    case "Part No":
-      return t("h_part_no");
-    case "ID":
-      return t("h_id");
-    default:
-      return k;
-  }
-}
-
-// ------- helpers -------
-const $ = (id) => document.getElementById(id);
-
-// ------- UI helpers -------
-const landingSection = $("landingSection");
-const resultsSection = $("resultsSection");
-
-// Landing widgets
-const districtBtnLanding = $("districtBtnLanding");
-const districtPopoverLanding = $("districtPopoverLanding");
-const districtMirrorLanding = $("districtMirrorLanding");
-const qLanding = $("q");
-const searchBtnLanding = $("searchBtn");
-const exactToggleLanding = $("exactToggle");
-
-// Results widgets
-const districtBtn = $("districtBtn");
-const districtPopover = $("districtPopover");
-const districtMirror = $("districtMirror");
-const qResults = $("qResults");
-const searchBtnResults = $("searchBtnResults");
-const exactToggleResults = $("exactToggleResults");
-
-const chipVoter = $("chipVoter");
-const chipRelative = $("chipRelative");
-const chipAnywhere = $("chipAnywhere");
-
-const selectedAcBtn = $("selectedAcBtn");
-const selectedAcText = $("selectedAcText");
-const acPopover = $("acPopover");
-
-const moreFiltersBtn = $("moreFiltersBtn");
-const filtersPopover = $("filtersPopover");
-
-const sortBtn = $("sortBtn");
-const sortText = $("sortText");
-const sortPopover = $("sortPopover");
-
-const pageSizeBtn = $("pageSizeBtn");
-const pageSizeText = $("pageSizeText");
-const pageSizePopover = $("pageSizePopover");
-
-const resultsEl = $("results");
-const pager = $("pager");
-const prevBtn = $("prevBtn");
-const nextBtn = $("nextBtn");
-const pageInfo = $("pageInfo");
-const resultsCount = $("resultsCount");
-const currentPageCount = $("currentPageCount");
-
-const statusLanding = $("statusLanding");
-const statusResults = $("statusResults");
-const metaLine = $("metaLine");
-const bar = $("bar");
-
-const clearBtn = $("clearBtn");
-
-const districtSelHidden = $("districtSel");
-
-// iOS hint
-const iosHintLanding = $("iosHintLanding");
-const iosHintCloseLanding = $("iosHintCloseLanding");
-const iosHintResults = $("iosHintResults");
-const iosHintCloseResults = $("iosHintCloseResults");
-
-// Modal (filters)
-const modalOverlay = $("modalOverlay");
-const modalTitle = $("modalTitle");
-const modalSubtitle = $("modalSubtitle");
-const modalFields = $("modalFields");
-const modalCancel = $("modalCancel");
-const modalDone = $("modalDone");
-
-// Filters UI fields
-const filtersRoot = $("filtersRoot");
-const relNameInput = $("relNameInput");
-const genderSel = $("genderSel");
-const ageModeSel = $("ageModeSel");
-const ageA = $("ageA");
-const ageB = $("ageB");
-const clearFiltersBtn = $("clearFiltersBtn");
-const applyFiltersBtn = $("applyFiltersBtn");
-
-// enhanced input elements
-const enhancerLanding = createEnhancerForInput(
-  "landing",
-  qLanding,
-  $("enhancedWrapLanding"),
-  $("micBtnLanding"),
-  $("listenChipLanding"),
-  $("translitPopoverLanding")
-);
-
-const enhancerResults = createEnhancerForInput(
-  "results",
-  qResults,
-  $("enhancedWrapResults"),
-  $("micBtnResults"),
-  $("listenChipResults"),
-  $("translitPopoverResults")
-);
-
-// -------- state helpers --------
 let searchEnabled = false;
 let districtLoading = false;
+let searchInFlight = false;
+let searchRunToken = 0;
+let searchAbortCtrl = null;
+
+// Score cache: minimal info needed for filters + worker ranking
+// key: `${ac}:${row_id}` -> row
+const scoreCache = new Map();
+
+// Display cache: full display row for the table
+const displayCache = new Map();
+
+// ---------- Utils ----------
+function setStatus(msg) {
+  if (statusEl) statusEl.textContent = msg || "";
+}
 
 function setBar(pct) {
-  if (!bar) return;
-  const x = Math.max(0, Math.min(100, Number(pct) || 0));
-  bar.style.width = `${x}%`;
-}
-
-function setMeta(msg) {
-  if (metaLine) metaLine.textContent = msg || "";
-}
-
-function setStatus(msg) {
-  if (statusLanding) statusLanding.textContent = msg || "";
-  if (statusResults) statusResults.textContent = msg || "";
+  if (!barWrap || !bar) return;
+  if (pct == null) {
+    barWrap.style.display = "none";
+    return;
+  }
+  barWrap.style.display = "block";
+  const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
+  bar.style.width = `${clamped}%`;
 }
 
 function showLanding() {
-  if (landingSection) landingSection.style.display = "flex";
-  if (resultsSection) resultsSection.style.display = "none";
+  landing.style.display = "block";
+  results.style.display = "none";
 }
 
 function showResults() {
-  if (landingSection) landingSection.style.display = "none";
-  if (resultsSection) resultsSection.style.display = "block";
+  landing.style.display = "none";
+  results.style.display = "block";
 }
 
-function isResultsVisible() {
-  return resultsSection && resultsSection.style.display !== "none";
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-function setSearchEnabled(v) {
-  searchEnabled = !!v;
-  syncSearchButtonState();
-  enhancerLanding?.syncDisabled();
-  enhancerResults?.syncDisabled();
+function isMobile() {
+  return window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
 }
 
-function setDistrictLoading(v) {
-  districtLoading = !!v;
-  document.body.classList.toggle("loading", districtLoading);
-  syncSearchButtonState();
+function makeKey(ac, rowId) {
+  return `${Number(ac)}:${Number(rowId)}`;
 }
 
-function sanitizeDistrictId(id) {
-  return String(id || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+function getActiveQueryInput() {
+  return results.style.display !== "none" ? qResults : qLanding;
+}
+
+function exactOnFromIncludeTyping() {
+  // checkbox label = "Including typing mistakes"
+  // When checked => include typos => exactOn = false
+  const el = results.style.display !== "none" ? includeTypingResults : includeTypingLanding;
+  return el ? !el.checked : false;
 }
 
 function getCurrentDistrictSlug() {
-  return sanitizeDistrictId(currentDistrictId);
-}
-
-function updateDistrictUI() {
-  const label = currentDistrictLabel || t("select_district");
-  if (districtMirror) districtMirror.textContent = label;
-  if (districtMirrorLanding) districtMirrorLanding.textContent = label;
-}
-
-function isAllACsSelected() {
-  return selectedACs.size === 0 || selectedACs.size === districtACsAll.length;
+  const v = districtSelect?.value || "";
+  return String(v || "").trim();
 }
 
 function getActiveACs() {
-  return isAllACsSelected()
-    ? districtACsAll.slice()
-    : Array.from(selectedACs).slice().sort((a, b) => a - b);
-}
+  // If you have a multi-select: take selected options.
+  // If single select: returns [Number(value)].
+  const districtId = getCurrentDistrictSlug();
+  if (!districtId || !manifest) return [];
 
-function updateSelectedAcText() {
-  if (!selectedAcText) return;
+  const district = (manifest.districts || []).find((d) => d.id === districtId);
+  if (!district) return [];
 
-  if (!districtACsAll.length) {
-    selectedAcText.textContent = t("selected_acs_none");
-    return;
-  }
-  if (isAllACsSelected()) {
-    selectedAcText.textContent = t("selected_acs_all");
-    return;
-  }
-  const arr = getActiveACs();
-  if (arr.length <= 4)
-    selectedAcText.textContent = t("selected_acs_list", {
-      list: arr.map((x) => String(x).padStart(2, "0")).join(", "),
-    });
-  else selectedAcText.textContent = t("selected_acs_count", { n: arr.length });
-}
+  // If AC selector exists and has selections, respect it; otherwise use all district ACs.
+  if (!acSelect) return district.acs.map(Number);
 
-function closeDistrictPopover(popEl, btnEl) {
-  if (!popEl) return;
-  popEl.style.display = "none";
-  popEl.setAttribute("aria-hidden", "true");
-  if (btnEl) btnEl.setAttribute("aria-expanded", "false");
-}
+  const selected = Array.from(acSelect.selectedOptions || []).map((o) => Number(o.value)).filter(Number.isFinite);
 
-function openDistrictPopover(popEl, btnEl) {
-  if (!popEl) return;
-  popEl.style.display = "block";
-  popEl.setAttribute("aria-hidden", "false");
-  if (btnEl) btnEl.setAttribute("aria-expanded", "true");
-}
+  if (selected.length) return selected;
 
-function closeAcPopover() {
-  if (!acPopover) return;
-  acPopover.style.display = "none";
-  acPopover.setAttribute("aria-hidden", "true");
-}
-
-function openAcPopover() {
-  if (!acPopover) return;
-  closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-  closeDistrictPopover(districtPopover, districtBtn);
-  closeFiltersPopover();
-  closeSortPopover();
-  closePageSizePopover();
-
-  acPopover.style.display = "block";
-  acPopover.setAttribute("aria-hidden", "false");
-  renderAcPopover();
-}
-
-function closeFiltersPopover() {
-  if (!filtersPopover) return;
-  filtersPopover.style.display = "none";
-  filtersPopover.setAttribute("aria-hidden", "true");
-}
-
-function openFiltersPopover() {
-  if (!filtersPopover) return;
-  closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-  closeDistrictPopover(districtPopover, districtBtn);
-  closeAcPopover();
-  closeSortPopover();
-  closePageSizePopover();
-
-  filtersPopover.style.display = "block";
-  filtersPopover.setAttribute("aria-hidden", "false");
-  renderFiltersPopoverRoot();
-}
-
-function closeSortPopover() {
-  if (!sortPopover) return;
-  sortPopover.style.display = "none";
-  sortPopover.setAttribute("aria-hidden", "true");
-  sortBtn?.setAttribute("aria-expanded", "false");
-}
-
-function openSortPopover() {
-  if (!sortPopover) return;
-  closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-  closeDistrictPopover(districtPopover, districtBtn);
-  closeAcPopover();
-  closeFiltersPopover();
-  closePageSizePopover();
-
-  sortPopover.style.display = "block";
-  sortPopover.setAttribute("aria-hidden", "false");
-  sortBtn?.setAttribute("aria-expanded", "true");
-  renderSortPopover();
-}
-
-function closePageSizePopover() {
-  if (!pageSizePopover) return;
-  pageSizePopover.style.display = "none";
-  pageSizePopover.setAttribute("aria-hidden", "true");
-  pageSizeBtn?.setAttribute("aria-expanded", "false");
-}
-
-function openPageSizePopover() {
-  if (!pageSizePopover) return;
-  closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-  closeDistrictPopover(districtPopover, districtBtn);
-  closeAcPopover();
-  closeFiltersPopover();
-  closeSortPopover();
-
-  pageSizePopover.style.display = "block";
-  pageSizePopover.setAttribute("aria-hidden", "false");
-  pageSizeBtn?.setAttribute("aria-expanded", "true");
-  renderPageSizePopover();
+  // default: all in district
+  return (district.acs || []).map(Number).filter(Number.isFinite);
 }
 
 function syncSearchButtonState() {
-  const hasDistrict = !!getCurrentDistrictSlug() && districtACsAll.length > 0;
-  const canSearch = searchEnabled && !districtLoading && hasDistrict;
-
-  if (qLanding) qLanding.disabled = !canSearch;
-  if (qResults) qResults.disabled = !canSearch;
+  const hasDistrict = !!getCurrentDistrictSlug();
+  const canSearch = searchEnabled && !districtLoading && hasDistrict && !searchInFlight;
 
   if (searchBtnLanding) searchBtnLanding.disabled = !canSearch;
   if (searchBtnResults) searchBtnResults.disabled = !canSearch;
 
-  if (selectedAcBtn) selectedAcBtn.disabled = !canSearch;
+  if (qLanding) qLanding.disabled = !canSearch;
+  if (qResults) qResults.disabled = !canSearch;
 
-  if (moreFiltersBtn) moreFiltersBtn.disabled = !(canSearch && searchScope === SCOPE.VOTER);
+  if (districtSelect) districtSelect.disabled = districtLoading || searchInFlight;
+  if (acSelect) acSelect.disabled = districtLoading || searchInFlight;
 
-  if (sortBtn) sortBtn.disabled = !canSearch;
-  if (pageSizeBtn) pageSizeBtn.disabled = !canSearch;
+  if (includeTypingLanding) includeTypingLanding.disabled = districtLoading || searchInFlight || !hasDistrict;
+  if (includeTypingResults) includeTypingResults.disabled = districtLoading || searchInFlight || !hasDistrict;
+}
 
-  enhancerLanding?.syncDisabled();
-  enhancerResults?.syncDisabled();
+function cancelInFlightSearch() {
+  // Invalidate any in-flight runSearch loops + abort network calls + reset worker
+  searchRunToken++;
+  if (searchAbortCtrl) {
+    try {
+      searchAbortCtrl.abort();
+    } catch {}
+  }
+  searchAbortCtrl = null;
+
+  if (worker) {
+    try {
+      worker.terminate();
+    } catch {}
+    worker = null;
+  }
+  pendingResolve = null;
+  pendingReject = null;
+  searchInFlight = false;
+  syncSearchButtonState();
 }
 
 // ---------- Backend (Netlify Functions) ----------
-const FN_BASE = `${window.location.origin}/.netlify/functions/`;
-const fnUrl = (name) => `${FN_BASE}${name}`;
+function fnUrl(name) {
+  return relUrl(`.netlify/functions/${name}`);
+}
 
-async function postJson(url, payload) {
+async function postJson(url, payload, signal) {
   const resp = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload || {}),
+    signal,
   });
+
   const text = await resp.text();
   let json;
   try {
@@ -887,6 +269,7 @@ async function postJson(url, payload) {
   } catch {
     json = { raw: text };
   }
+
   if (!resp.ok) {
     const msg = json?.error || json?.message || `HTTP ${resp.status}`;
     throw new Error(msg);
@@ -894,386 +277,288 @@ async function postJson(url, payload) {
   return json;
 }
 
-async function callFn(name, payload) {
-  return postJson(fnUrl(name), payload);
+async function callFn(name, payload, signal) {
+  return postJson(fnUrl(name), payload, signal);
 }
 
-function makeKey(ac, row_id) {
-  return `${Number(ac)}:${Number(row_id)}`;
+// ---------- District manifest + selectors ----------
+async function loadManifest() {
+  const url = relUrl(`data/${STATE_CODE_DEFAULT}/district_manifest.json`);
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`Failed to load district manifest (${resp.status})`);
+  manifest = await resp.json();
 }
 
-function parseAgeValue(v) {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  const m = s.match(/(\d+)/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : null;
+function populateDistrictSelect() {
+  if (!districtSelect || !manifest) return;
+
+  districtSelect.innerHTML = "";
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.textContent = t("district_placeholder");
+  districtSelect.appendChild(opt0);
+
+  for (const d of manifest.districts || []) {
+    const opt = document.createElement("option");
+    opt.value = d.id;
+    opt.textContent = d.label;
+    districtSelect.appendChild(opt);
+  }
 }
 
-function normGenderValue(v) {
-  const s = String(v ?? "").trim().toLowerCase();
-  if (!s) return "other";
-  if (s === "m" || s.includes("male") || s.includes("पुरुष") || s.includes("पु") || s.includes("man")) return "male";
-  if (s === "f" || s.includes("female") || s.includes("महिला") || s.includes("स्त्री") || s.includes("woman")) return "female";
-  if (s.includes("other") || s.includes("अन्य") || s === "o") return "other";
-  return "other";
+function populateACSelectForDistrict(districtId) {
+  if (!acSelect || !manifest) return;
+  acSelect.innerHTML = "";
+
+  const district = (manifest.districts || []).find((d) => d.id === districtId);
+  if (!district) return;
+
+  // Optional placeholder if single-select
+  if (!acSelect.multiple) {
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = t("ac_placeholder");
+    acSelect.appendChild(opt0);
+  }
+
+  for (const ac of district.acs || []) {
+    const opt = document.createElement("option");
+    opt.value = String(ac);
+    opt.textContent = String(ac).padStart(2, "0");
+    acSelect.appendChild(opt);
+  }
+
+  // Default: select all if multi-select
+  if (acSelect.multiple) {
+    for (const o of acSelect.options) o.selected = true;
+  }
 }
 
+// ---------- Score + display cache ----------
 function cacheScoreRow(ac, r) {
-  const k = makeKey(ac, Number(r.row_id));
-  const ageRaw = r.age ?? r.Age ?? r["Age"] ?? null;
-  const genderRaw = r.gender ?? r.Gender ?? r["Gender"] ?? null;
-  const ageParsed = parseAgeValue(ageRaw);
-  const genderBucket = normGenderValue(genderRaw);
-  scoreCache.set(k, { ageRaw, ageParsed, genderRaw, genderBucket });
-}
-// -------- District manifest --------
-const FALLBACK_DISTRICT_MAP = [
-  { id: "sahebganj", label: "Sahebganj", acs: [1, 2, 3] },
-  { id: "pakur", label: "Pakur", acs: [4, 5, 6] },
-  { id: "dumka", label: "Dumka", acs: [7, 10, 11, 12] },
-  { id: "jamtara", label: "Jamtara", acs: [8, 9] },
-  { id: "deoghar", label: "Deoghar", acs: [13, 14, 15] },
-  { id: "godda", label: "Godda", acs: [16, 17, 18] },
-  { id: "kodarma", label: "Kodarma", acs: [19] },
-  { id: "hazaribagh", label: "Hazaribagh", acs: [20, 21, 24, 25] },
-  { id: "ramgarh", label: "Ramgarh", acs: [22, 23] },
-  { id: "chatra", label: "Chatra", acs: [26, 27] },
-  { id: "giridih", label: "Giridih", acs: [28, 29, 30, 31, 32, 33] },
-  { id: "bokaro", label: "Bokaro", acs: [34, 35, 36, 37] },
-  { id: "dhanbad", label: "Dhanbad", acs: [38, 39, 40, 41, 42, 43] },
-  { id: "east-singhbhum", label: "East Singhbhum", acs: [44, 45, 46, 47, 48, 49] },
-  { id: "saraikela-kharswan", label: "Saraikela-Kharswan", acs: [50, 51, 57] },
-  { id: "west-singhbhum", label: "West Singhbhum", acs: [52, 53, 54, 55, 56] },
-  { id: "ranchi", label: "Ranchi", acs: [58, 61, 62, 63, 64, 65, 66] },
-  { id: "khunti", label: "Khunti", acs: [59, 60] },
-  { id: "gumla", label: "Gumla", acs: [67, 68, 69] },
-  { id: "simdega", label: "Simdega", acs: [70, 71] },
-  { id: "lohardaga", label: "Lohardaga", acs: [72] },
-  { id: "latehar", label: "Latehar", acs: [73, 74] },
-  { id: "palamu", label: "Palamu", acs: [75, 76, 77, 78, 79] },
-  { id: "garhwa", label: "Garhwa", acs: [80, 81] },
-];
+  const key = makeKey(ac, r.row_id);
+  const prev = scoreCache.get(key);
 
-function normalizeDistrictManifest(raw) {
-  if (!raw) return { districts: FALLBACK_DISTRICT_MAP };
-  if (Array.isArray(raw.districts)) {
-    return {
-      districts: raw.districts
-        .map((d) => ({
-          id: String(d.id ?? d.label ?? d.name ?? "").trim(),
-          label: String(d.label ?? d.name ?? d.id ?? "District"),
-          acs: Array.isArray(d.acs) ? d.acs.map(Number).filter(Number.isFinite) : [],
-        }))
-        .filter((d) => d.id && d.acs.length > 0),
-    };
-  }
-  return { districts: FALLBACK_DISTRICT_MAP };
-}
-
-async function loadDistrictManifest(stateCode) {
-  const url = relUrl(`data/${stateCode}/district_manifest.json`);
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const raw = await resp.json();
-    districtManifest = normalizeDistrictManifest(raw);
-  } catch (_e) {
-    districtManifest = { districts: FALLBACK_DISTRICT_MAP };
-  }
-}
-
-function populateDistrictHiddenSelect() {
-  if (!districtSelHidden) return;
-  districtSelHidden.innerHTML =
-    `<option value="">${t("select_district")}</option>` +
-    (districtManifest?.districts || [])
-      .map((d) => `<option value="${d.id}">${d.label}</option>`)
-      .join("");
-}
-
-// ---------- AC selection ----------
-function renderAcPopover() {
-  if (!acPopover) return;
-
-  const all = districtACsAll.slice().sort((a, b) => a - b);
-  const isAll = isAllACsSelected();
-
-  const wrap = document.createElement("div");
-
-  const allBtn = document.createElement("button");
-  allBtn.type = "button";
-  allBtn.className = "option";
-  allBtn.textContent = isAll ? `✓ ${t("selected_acs_all")}` : t("selected_acs_all");
-  allBtn.onclick = () => {
-    selectedACs.clear();
-    updateSelectedAcText();
-    renderAcPopover();
-    if (rankedByRelevance.length) applyFiltersThenSortThenRender();
+  const row = {
+    row_id: Number(r.row_id),
+    ac: Number(ac),
+    serial_no: r.serial_no ?? r["Serial No"] ?? "",
+    voter_name_raw: r.voter_name_raw ?? r["Voter Name"] ?? "",
+    relative_name_raw: r.relative_name_raw ?? r["Relative Name"] ?? "",
+    voter_name_norm: r.voter_name_norm ?? "",
+    relative_name_norm: r.relative_name_norm ?? "",
+    gender: r.gender ?? r["Gender"] ?? "",
+    age: r.age ?? r["Age"] ?? "",
   };
-  wrap.appendChild(allBtn);
 
-  all.forEach((ac) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "option";
-    const on = selectedACs.has(ac);
-    b.textContent = `${on ? "✓ " : ""}AC ${String(ac).padStart(2, "0")}`;
-    b.onclick = () => {
-      if (isAllACsSelected()) {
-        selectedACs = new Set(all);
-      }
-      if (selectedACs.has(ac)) selectedACs.delete(ac);
-      else selectedACs.add(ac);
-
-      if (selectedACs.size === all.length) selectedACs.clear();
-
-      updateSelectedAcText();
-      renderAcPopover();
-      if (rankedByRelevance.length) applyFiltersThenSortThenRender();
-    };
-    wrap.appendChild(b);
-  });
-
-  acPopover.innerHTML = "";
-  acPopover.appendChild(wrap);
+  if (!prev) scoreCache.set(key, row);
 }
 
-async function preloadDistrictACs(acs, _districtLabel) {
-  if (!acs || !acs.length) return;
-  const token = ++districtPreloadToken;
-  setSearchEnabled(false);
-  setDistrictLoading(true);
-  try {
-    // DB-backed mode: no client preload needed
-  } finally {
-    if (token === districtPreloadToken) {
-      setDistrictLoading(false);
-      setSearchEnabled(true);
-    }
-  }
+function getScoreRow(ac, rowId) {
+  return scoreCache.get(makeKey(ac, rowId)) || null;
 }
 
-function setDistrictById(id) {
-  const d = (districtManifest?.districts || []).find((x) => x.id === id);
-  if (!d) return;
-
-  currentDistrictId = d.id;
-  currentDistrictLabel = d.label;
-  districtACsAll = d.acs.slice();
-  selectedACs.clear();
-
-  if (districtSelHidden) districtSelHidden.value = d.id;
-
-  updateDistrictUI();
-  updateSelectedAcText();
-
-  rankedByRelevance = [];
-  filteredBase = [];
-  rankedView = [];
-  ageMap = null;
-  displayCache.clear();
-  scoreCache.clear();
-  page = 1;
-
-  preloadDistrictACs(districtACsAll.slice(), currentDistrictLabel);
-
-  if (isResultsVisible()) {
-    resultsEl.innerHTML = "";
-    pager.style.display = "none";
-    pageInfo.textContent = "0";
-    resultsCount.textContent = "0";
-  }
-
-  setStatus(t("status_ready_district_loaded", { district: currentDistrictLabel, n: districtACsAll.length }));
-}
-
-// ---------- Query helpers ----------
-// ---------- Query helpers ----------
+// ---------- Strict / Exact / Loose query helpers (RESTORED FROM ORIGINAL) ----------
 
 // ---------------- Strict normalization ----------------
+// Minimal strict folding to match your prefix_3 index
 function norm(s) {
-  if (s == null) return "";
-  s = String(s).replace(/\u00a0/g, " ").trim();
-  s = s.replace(/[.,;:|/\\()[\]{}<>"'~!@#$%^&*_+=?-]/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
-  return s;
+  return String(s ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function tokenize(s) {
-  s = norm(s);
-  if (!s) return [];
-  return s.split(" ").filter(Boolean);
+  const q = norm(s);
+  if (!q) return [];
+  // split on whitespace; keep Devanagari tokens and ASCII
+  return q.split(" ").filter(Boolean);
 }
 
-function prefixN(token, n) {
-  token = (token || "").replace(/\s+/g, "");
-  if (!token) return "";
-  return token.length >= n ? token.slice(0, n) : token;
+function prefixN(s, n) {
+  const t = String(s ?? "");
+  if (!t) return "";
+  return t.length <= n ? t : t.slice(0, n);
 }
 
-// ---------------- Exact index normalization (vowel/matra tolerant) ----------------
-const INDEP_VOWEL_MAP = new Map(
-  Object.entries({
-    अ: "A",
-    आ: "A",
-    इ: "I",
-    ई: "I",
-    उ: "U",
-    ऊ: "U",
-    ए: "E",
-    ऐ: "E",
-    ओ: "O",
-    औ: "O",
-    ऋ: "R",
-    ॠ: "R",
-    ऌ: "L",
-    ॡ: "L",
-  })
-);
+// ---------------- Exact index normalization ----------------
+// exact_prefix_2 index uses a vowel-bucket + matra folding for OCR-ish exactness
+const INDEP_VOWEL_MAP = new Map([
+  ["अ", "A"],
+  ["आ", "A"],
+  ["इ", "I"],
+  ["ई", "I"],
+  ["उ", "U"],
+  ["ऊ", "U"],
+  ["ए", "E"],
+  ["ऐ", "E"],
+  ["ओ", "O"],
+  ["औ", "O"],
+  ["ऋ", "R"],
+]);
 
-const MATRA_MAP = new Map(
-  Object.entries({
-    "ा": "A",
-    "ि": "I",
-    "ी": "I",
-    "ु": "U",
-    "ू": "U",
-    "े": "E",
-    "ै": "E",
-    "ो": "O",
-    "ौ": "O",
-    "ृ": "R",
-    "ॄ": "R",
-    "ॢ": "L",
-    "ॣ": "L",
-  })
-);
+const MATRA_MAP = new Map([
+  ["ा", "A"],
+  ["ि", "I"],
+  ["ी", "I"],
+  ["ु", "U"],
+  ["ू", "U"],
+  ["े", "E"],
+  ["ै", "E"],
+  ["ो", "O"],
+  ["ौ", "O"],
+  ["ृ", "R"],
+]);
 
-const REMOVE_MARKS = new Set(["ँ", "ं", "ः", "़", "्"]);
+const REMOVE_MARKS = /[ँंः़्]/g;
 
-function normExactIndex(s) {
-  s = norm(s);
+// Fold a single token into an "exact index" representation.
+// Goal: handle common OCR vowel/matra confusions while staying fairly strict.
+function normExactIndexToken(tok) {
+  const s = String(tok || "");
   if (!s) return "";
+
   let out = "";
-  for (const ch of s) {
-    if (REMOVE_MARKS.has(ch)) continue;
-    if (INDEP_VOWEL_MAP.has(ch)) out += INDEP_VOWEL_MAP.get(ch);
-    else if (MATRA_MAP.has(ch)) out += MATRA_MAP.get(ch);
-    else out += ch;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (REMOVE_MARKS.test(ch)) continue;
+
+    // independent vowels -> buckets
+    if (INDEP_VOWEL_MAP.has(ch)) {
+      out += INDEP_VOWEL_MAP.get(ch);
+      continue;
+    }
+    // matras -> buckets
+    if (MATRA_MAP.has(ch)) {
+      out += MATRA_MAP.get(ch);
+      continue;
+    }
+
+    out += ch;
   }
-  out = out.replace(/\s+/g, " ").trim();
   return out;
 }
 
 function tokenizeExactIndex(s) {
-  s = normExactIndex(s);
-  if (!s) return [];
-  return s.split(" ").filter(Boolean);
+  const toks = tokenize(s);
+  return toks.map(normExactIndexToken).filter(Boolean);
 }
 
-// ---------------- Loose normalization (candidate recall only) ----------------
+// ---------------- Loose normalization ----------------
+// loose_prefix_2 index uses visually/phonetically confusable folding.
+// This is intentionally broad (for maximum recall when "include typing mistakes" is ON).
 const CONFUSABLE_SETS = [
-  ["द", "ढ", "ह"],
-  ["ब", "व"],
+  // Common OCR/visual confusions
+  ["क", "र", "ख"],
   ["स", "श"],
-  ["त", "न"],
-  ["ड", "ढ"],
+  ["द", "ध", "ढ"],
+  ["त", "ट", "थ", "ठ"],
+  ["व", "ब"],
+  ["प", "फ"],
+  ["ग", "घ"],
+  ["ज", "झ"],
+  ["इ", "ई"],
+  ["उ", "ऊ"],
+  ["अ", "आ"],
+  ["ए", "ऐ"],
+  ["ओ", "औ"],
 ];
 
 const CONF_MAP = (() => {
   const m = new Map();
-  for (const set of CONFUSABLE_SETS) {
-    const rep = set[0];
-    for (const ch of set) m.set(ch, rep);
+  // Assign stable bucket letters for each group
+  // (must match how your DB was built)
+  const buckets = "abcdefghijklmnopqrstuvwxyz";
+  let bi = 0;
+  for (const group of CONFUSABLE_SETS) {
+    const b = buckets[bi++] || "z";
+    for (const ch of group) m.set(ch, b);
   }
   return m;
 })();
 
 function applyConfusableFoldLoose(s) {
-  if (!s) return "";
-  let out = "";
-  for (const ch of s) out += CONF_MAP.get(ch) || ch;
-  // OCR-ish visual confusion we used earlier
-  out = out.replace(/रव/g, "ख");
-  return out;
-}
+  const inStr = String(s || "");
+  if (!inStr) return "";
 
-function normLoose(s) {
-  s = norm(s);
-  if (!s) return "";
   let out = "";
-  for (const ch of s) {
-    if (INDEP_VOWEL_MAP.has(ch)) out += INDEP_VOWEL_MAP.get(ch);
-    else if (MATRA_MAP.has(ch)) out += MATRA_MAP.get(ch);
-    else if (REMOVE_MARKS.has(ch)) continue;
-    else out += ch;
+  for (let i = 0; i < inStr.length; i++) {
+    const ch = inStr[i];
+    if (REMOVE_MARKS.test(ch)) continue;
+
+    // vowels/matras still bucketed
+    if (INDEP_VOWEL_MAP.has(ch)) {
+      out += INDEP_VOWEL_MAP.get(ch);
+      continue;
+    }
+    if (MATRA_MAP.has(ch)) {
+      out += MATRA_MAP.get(ch);
+      continue;
+    }
+
+    out += CONF_MAP.get(ch) ?? ch;
   }
-  out = applyConfusableFoldLoose(out);
-  out = out.replace(/\s+/g, " ").trim();
   return out;
 }
 
 function tokenizeLoose(s) {
-  s = normLoose(s);
-  if (!s) return [];
-  return s.split(" ").filter(Boolean);
+  const toks = tokenize(s);
+  return toks.map(applyConfusableFoldLoose).filter(Boolean);
 }
 
-// ---------------- Join variants (query side too) ----------------
+// ---------------- Join variants ----------------
+// For multi-part names, we also generate concatenated variants (no spaces).
 function joinVariantsTokens(tokens) {
-  const toks = tokens.slice().filter(Boolean);
-  const n = toks.length;
-  if (n <= 1) return [];
-  const out = new Set();
+  const toks = Array.isArray(tokens) ? tokens.filter(Boolean) : [];
+  if (toks.length <= 1) return [];
 
-  if (n <= 3) {
-    for (let i = 0; i < n - 1; i++) {
-      const merged = toks
-        .slice(0, i)
-        .concat([toks[i] + toks[i + 1]])
-        .concat(toks.slice(i + 2));
-      out.add(merged.join(" "));
-    }
-    out.add(toks.join(""));
-    const final = new Set();
-    for (const s of out) final.add(s.replace(/\s+/g, ""));
-    return Array.from(final);
+  const joined = [];
+
+  // full join (all tokens)
+  joined.push(toks.join(""));
+
+  // progressive joins: 2..N tokens from the start
+  for (let i = 2; i <= toks.length; i++) {
+    joined.push(toks.slice(0, i).join(""));
   }
 
-  for (let i = 0; i < n - 1; i++) {
-    const merged = toks
-      .slice(0, i)
-      .concat([toks[i] + toks[i + 1]])
-      .concat(toks.slice(i + 2));
-    out.add(merged.join(" ").replace(/\s+/g, ""));
+  // adjacent pair joins
+  for (let i = 0; i < toks.length - 1; i++) {
+    joined.push(toks[i] + toks[i + 1]);
   }
-  out.add(toks.join(""));
-  return Array.from(out);
+
+  // de-dup
+  return Array.from(new Set(joined)).filter(Boolean);
 }
-
 
 function buildKeysFromTokens(tokens, prefixLen) {
-  const keys = tokens.map((t) => prefixN(t, prefixLen)).filter(Boolean);
-  const joins = joinVariantsTokens(tokens);
-  for (const j of joins) {
-    const k = prefixN(j, prefixLen);
-    if (k) keys.push(k);
+  const keys = new Set();
+
+  for (const tok of tokens) {
+    const p = prefixN(tok, prefixLen);
+    if (p) keys.add(p);
   }
-  return Array.from(new Set(keys));
+
+  // join variants
+  for (const j of joinVariantsTokens(tokens)) {
+    const p = prefixN(j, prefixLen);
+    if (p) keys.add(p);
+  }
+
+  return Array.from(keys);
 }
 
 // ---------- Candidates + Rows (server) ----------
-async function getCandidatesForQuery(q, scope, exactOn) {
+async function getCandidatesForQuery(q, scope, exactOn, signal) {
   const strictTokens = tokenize(q);
   const strictKeys = buildKeysFromTokens(strictTokens, PREFIX_LEN_STRICT);
 
   const exactTokens = tokenizeExactIndex(q);
   const exactKeys = buildKeysFromTokens(exactTokens, PREFIX_LEN_EXACT);
 
-  const looseTokens = tokenizeLoose(q);
-  const looseKeys = buildKeysFromTokens(looseTokens, PREFIX_LEN_LOOSE);
+  const wantLoose = !exactOn;
+  const looseTokens = wantLoose ? tokenizeLoose(q) : [];
+  const looseKeys = wantLoose ? buildKeysFromTokens(looseTokens, PREFIX_LEN_LOOSE) : [];
 
   const districtId = getCurrentDistrictSlug();
   const ac = Number(current.ac);
@@ -1282,78 +567,106 @@ async function getCandidatesForQuery(q, scope, exactOn) {
     return { candidates: [], metaByRow: new Map() };
   }
 
-  const json = await callFn("candidates", {
-    state: STATE_CODE_DEFAULT,
-    districtId,
-    ac,
-    scope,
-    exactOn,
-    strictKeys,
-    exactKeys,
-    looseKeys,
-  });
+  const json = await callFn(
+    "candidates",
+    {
+      state: STATE_CODE_DEFAULT,
+      districtId,
+      district: districtId,
+      ac,
+      scope,
+      exactOn,
+      strictKeys,
+      exactKeys,
+      looseKeys,
+    },
+    signal
+  );
 
   const candidates = Array.isArray(json.candidates) ? json.candidates.map(Number).filter(Number.isFinite) : [];
+
   const metaByRow = new Map();
-  if (Array.isArray(json.metaByRowEntries)) {
-    for (const [rid, meta] of json.metaByRowEntries) {
-      const id = Number(rid);
-      if (Number.isFinite(id)) metaByRow.set(id, meta || null);
-    }
-  } else if (json.metaByRow && typeof json.metaByRow === "object") {
-    for (const [rid, meta] of Object.entries(json.metaByRow)) {
-      const id = Number(rid);
-      if (Number.isFinite(id)) metaByRow.set(id, meta || null);
+  if (json.metaByRow && typeof json.metaByRow === "object") {
+    for (const [k, v] of Object.entries(json.metaByRow)) {
+      const rid = Number(k);
+      if (Number.isFinite(rid)) metaByRow.set(rid, v);
     }
   }
-  const outCandidates = candidates.length ? candidates : Array.from(metaByRow.keys());
-  console.log("CANDIDATES PAYLOAD", { districtId, ac, scope, exactOn, strictKeys, exactKeys, looseKeys });
-  return { candidates: outCandidates, metaByRow };
 
+  return { candidates, metaByRow };
 }
 
-async function fetchRowsByIds(rowIds) {
+async function fetchRowsByIds(rowIds, signal) {
   const districtId = getCurrentDistrictSlug();
   const ac = Number(current.ac);
   if (!districtId || !Number.isFinite(ac) || !rowIds?.length) return [];
 
-  const json = await callFn("rows", {
-    state: STATE_CODE_DEFAULT,
-    districtId,
-    ac,
-    mode: "score",
-    rowIds: rowIds.map(Number).filter(Number.isFinite),
-  });
+  const ids = rowIds.map(Number).filter(Number.isFinite);
+  const out = [];
 
-  const rows = Array.isArray(json.rows) ? json.rows : [];
-  for (const r of rows) cacheScoreRow(ac, r);
+  for (let i = 0; i < ids.length; i += FETCH_ID_CHUNK) {
+    const chunk = ids.slice(i, i + FETCH_ID_CHUNK);
 
-  return rows.map((r) => ({
-    row_id: Number(r.row_id),
-    voter_name_raw: r.voter_name_raw ?? "",
-    relative_name_raw: r.relative_name_raw ?? "",
-    voter_name_norm: r.voter_name_norm ?? "",
-    relative_name_norm: r.relative_name_norm ?? "",
-    serial_no: r.serial_no ?? "",
-  }));
+    const json = await callFn(
+      "rows",
+      {
+        state: STATE_CODE_DEFAULT,
+        districtId,
+        district: districtId,
+        ac,
+        mode: "score",
+        rowIds: chunk,
+      },
+      signal
+    );
+
+    const rows = Array.isArray(json.rows) ? json.rows : [];
+    for (const r of rows) cacheScoreRow(ac, r);
+
+    for (const r of rows) {
+      out.push({
+        row_id: Number(r.row_id),
+        voter_name_raw: r.voter_name_raw ?? "",
+        relative_name_raw: r.relative_name_raw ?? "",
+        voter_name_norm: r.voter_name_norm ?? "",
+        relative_name_norm: r.relative_name_norm ?? "",
+        serial_no: r.serial_no ?? "",
+      });
+    }
+  }
+
+  return out;
 }
 
-async function fetchDisplayRowsByIds(rowIds) {
+async function fetchDisplayRowsByIds(rowIds, signal) {
   const districtId = getCurrentDistrictSlug();
   const ac = Number(current.ac);
   if (!districtId || !Number.isFinite(ac) || !rowIds?.length) return [];
 
-  const json = await callFn("rows", {
-    state: STATE_CODE_DEFAULT,
-    districtId,
-    ac,
-    mode: "display",
-    rowIds: rowIds.map(Number).filter(Number.isFinite),
-  });
+  const ids = rowIds.map(Number).filter(Number.isFinite);
+  const outRows = [];
 
-  const rows = Array.isArray(json.rows) ? json.rows : [];
+  for (let i = 0; i < ids.length; i += FETCH_ID_CHUNK) {
+    const chunk = ids.slice(i, i + FETCH_ID_CHUNK);
 
-  return rows.map((r) => {
+    const json = await callFn(
+      "rows",
+      {
+        state: STATE_CODE_DEFAULT,
+        districtId,
+        district: districtId,
+        ac,
+        mode: "display",
+        rowIds: chunk,
+      },
+      signal
+    );
+
+    const rows = Array.isArray(json.rows) ? json.rows : [];
+    for (const r of rows) outRows.push(r);
+  }
+
+  return outRows.map((r) => {
     const out = {};
     out.row_id = Number(r.row_id);
     out["State Code"] = r["State Code"] ?? r.state_code ?? STATE_CODE_DEFAULT;
@@ -1371,496 +684,540 @@ let pendingReject = null;
 function initWorker() {
   if (worker) return;
   worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+
   worker.onmessage = (ev) => {
-    const msg = ev.data;
+    const msg = ev.data || {};
     if (msg.type === "progress") {
-      const { done, total, phase, candidates } = msg;
-      setStatus(`${phase} • candidates: ${candidates} • scored: ${done}/${total}`);
+      if (msg.total > 0) {
+        setBar((100 * msg.done) / msg.total);
+      }
+      const ac = current.ac != null ? String(current.ac).padStart(2, "0") : "";
+      setStatus(t("status_ranking", { done: msg.done, total: msg.total, ac }));
       return;
     }
+
     if (msg.type === "done") {
       const ranked = (msg.ranked || []).map((x, i) => ({
         row_id: x.row_id,
-        score: typeof x.score === "number" ? x.score : 1000000 - i,
+        score:
+          typeof x.score === "number"
+            ? x.score
+            : typeof x.rank === "number"
+            ? 1000000 - x.rank
+            : 1000000 - i,
       }));
-      pendingResolve?.(ranked);
+      const resolve = pendingResolve;
       pendingResolve = null;
       pendingReject = null;
+      if (resolve) resolve(ranked);
       return;
     }
+
     if (msg.type === "error") {
-      setStatus(`Worker error: ${msg.message}`);
-      pendingReject?.(new Error(msg.message));
+      const reject = pendingReject;
       pendingResolve = null;
       pendingReject = null;
+      if (reject) reject(new Error(msg.message || "Worker error"));
+      return;
     }
+  };
+
+  worker.onerror = (e) => {
+    const reject = pendingReject;
+    pendingResolve = null;
+    pendingReject = null;
+    if (reject) reject(new Error(e?.message || "Worker crashed"));
   };
 }
 
-function runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker) {
+function runWorkerRanking(rowsWithMeta, query, exactOn, scope) {
   initWorker();
   return new Promise((resolve, reject) => {
     pendingResolve = resolve;
     pendingReject = reject;
-
-    worker.postMessage({
-      type: "start",
-      query: qStrict,
-      scope: scopeForWorker,
-      exactOn,
-      total: rowsWithMeta.length,
-    });
-
+    worker.postMessage({ type: "start", query: String(query || ""), exactOn: !!exactOn, scope: String(scope || "voter") });
     for (let i = 0; i < rowsWithMeta.length; i += SCORE_BATCH) {
-      const batch = rowsWithMeta.slice(i, i + SCORE_BATCH);
-      worker.postMessage({ type: "batch", rows: batch });
+      worker.postMessage({ type: "batch", rows: rowsWithMeta.slice(i, i + SCORE_BATCH) });
     }
     worker.postMessage({ type: "finish" });
   });
 }
 
-// ---------- Rendering ----------
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+// ---------- Chips ----------
+function setScopeUI(scope) {
+  for (const el of scopeTabs) {
+    const s = el.getAttribute("data-scope");
+    el.classList.toggle("active", s === scope);
+  }
 }
 
-function renderTable(rows) {
-  const cols = DISPLAY_COLS;
-  const header = `<thead><tr>${cols
-    .map((c) => `<th${c === STICKY_COL_KEY ? ' class="stickyCol"' : ""}>${escapeHtml(headerLabelForKey(c))}</th>`)
-    .join("")}</tr></thead>`;
-
-  const body = `<tbody>${rows
-    .map((r) => {
-      const tds = cols
-        .map((c) => `<td${c === STICKY_COL_KEY ? ' class="stickyCol"' : ""}>${escapeHtml(r[c] ?? "")}</td>`)
-        .join("");
-      return `<tr>${tds}</tr>`;
-    })
-    .join("")}</tbody>`;
-
-  return `<table class="table">${header}${body}</table>`;
+function setScope(scope) {
+  searchScope = scope;
+  setScopeUI(scope);
 }
 
-function setSortMode(mode) {
-  sortMode = mode || SORT.RELEVANCE;
-  if (!sortText) return;
-  sortText.textContent =
-    sortMode === SORT.AGE_ASC
-      ? t("sort_by_age_up")
-      : sortMode === SORT.AGE_DESC
-      ? t("sort_by_age_down")
-      : t("sort_by_relevance");
+function setLanguage(lang) {
+  i18n.setLang(lang);
+  // update UI labels/text
+  document.documentElement.lang = lang === LANG.EN ? "en" : "hi";
+  renderStaticText();
+  renderDistrictUI();
+  renderResultsUI();
 }
 
-function renderSortPopover() {
-  if (!sortPopover) return;
-  const items = [
-    { mode: SORT.RELEVANCE, label: t("sort_by_relevance") },
-    { mode: SORT.AGE_ASC, label: t("sort_by_age_up") },
-    { mode: SORT.AGE_DESC, label: t("sort_by_age_down") },
-  ];
-  sortPopover.innerHTML = items
-    .map((it) => `<button type="button" class="option${it.mode === sortMode ? " active" : ""}" data-mode="${it.mode}">${escapeHtml(it.label)}</button>`)
-    .join("");
-  sortPopover.querySelectorAll("button.option").forEach((b) => {
-    b.onclick = async () => {
-      setSortMode(b.dataset.mode);
-      closeSortPopover();
-      if (rankedByRelevance.length) await applyFiltersThenSortThenRender();
-    };
-  });
+function renderStaticText() {
+  // landing
+  $("titleText").textContent = t("title");
+  $("subtitleText").textContent = t("subtitle");
+
+  // buttons
+  if (searchBtnLanding) searchBtnLanding.textContent = t("search");
+  if (searchBtnResults) searchBtnResults.textContent = t("search");
+
+  // labels
+  $("districtLabel").textContent = t("district");
+  $("acLabel").textContent = t("ac");
+
+  if (includeTypingLanding) $("includeTypingLabelLanding").textContent = t("include_typos");
+  if (includeTypingResults) $("includeTypingLabelResults").textContent = t("include_typos");
+
+  // filters
+  $("filtersTitle").textContent = t("filters");
+  $("filterGenderLabel").textContent = t("gender");
+  $("filterAgeLabel").textContent = t("age");
+  $("filterQueryLabel").textContent = t("filter_query");
+  $("sortLabel").textContent = t("sort");
+  $("pageSizeLabel").textContent = t("page_size");
+
+  // back button
+  if (backBtn) backBtn.textContent = t("back");
 }
 
-function setupPageSizeDefaultIfNeeded() {
-  const mobile = window.matchMedia && window.matchMedia("(max-width: 640px)").matches;
-  const desired = mobile ? PAGE_SIZE_MOBILE_DEFAULT : PAGE_SIZE_DESKTOP_DEFAULT;
-  if (!pageSize || !Number.isFinite(pageSize)) pageSize = desired;
+function renderDistrictUI() {
+  // placeholder option text depends on i18n; rebuild list
+  populateDistrictSelect();
+  if (districtSelect) districtSelect.value = current.districtId || "";
+
+  const did = getCurrentDistrictSlug();
+  if (did) populateACSelectForDistrict(did);
+
+  syncSearchButtonState();
 }
 
-function renderPageSizePopover() {
-  if (!pageSizePopover) return;
-  const mobile = window.matchMedia && window.matchMedia("(max-width: 640px)").matches;
-  const opts = mobile ? PAGE_SIZE_MOBILE_OPTIONS : PAGE_SIZE_DESKTOP_OPTIONS;
-  pageSizePopover.innerHTML = opts
-    .map((n) => `<button type="button" class="option${n === pageSize ? " active" : ""}" data-n="${n}">${n}</button>`)
-    .join("");
-  pageSizePopover.querySelectorAll("button.option").forEach((b) => {
-    b.onclick = async () => {
-      pageSize = Number(b.dataset.n);
-      if (pageSizeText) pageSizeText.textContent = String(pageSize);
-      closePageSizePopover();
-      if (rankedView.length) {
-        const totalPages = Math.max(1, Math.ceil(rankedView.length / pageSize));
-        page = Math.max(1, Math.min(page, totalPages));
-        await renderPage();
-      }
-      renderPageSizePopover();
-    };
-  });
-  if (pageSizeText) pageSizeText.textContent = String(pageSize);
+function renderResultsUI() {
+  // scope tabs labels
+  const tabVoter = $("tabVoter");
+  const tabRelative = $("tabRelative");
+  const tabAnywhere = $("tabAnywhere");
+  if (tabVoter) tabVoter.textContent = t("scope_voter");
+  if (tabRelative) tabRelative.textContent = t("scope_relative");
+  if (tabAnywhere) tabAnywhere.textContent = t("scope_anywhere");
+
+  // if already in results, rerender table headers
+  if (results.style.display !== "none") renderTable();
 }
 
-// ---------- Filters (minimal) ----------
-let filters = {
-  relativeName: "",
-  gender: "all",
-  age: { mode: "any", a: "", b: "" },
-};
-
-function updateMoreFiltersEnabled() {
-  if (moreFiltersBtn) moreFiltersBtn.disabled = !(searchEnabled && searchScope === SCOPE.VOTER);
+// ---------- Filters + sorting ----------
+function parseNum(x) {
+  const n = Number(String(x ?? "").trim());
+  return Number.isFinite(n) ? n : null;
 }
 
-function renderFiltersPopoverRoot() {
-  if (!filtersPopover || !filtersRoot) return;
+function applyFilters() {
+  let base = rankedByRelevance.slice();
 
-  filtersRoot.innerHTML = `
-    <div class="row">
-      <label>${escapeHtml(t("filter_relative_name"))}</label>
-      <input id="relNameInput" type="text" value="${escapeHtml(filters.relativeName || "")}" />
-    </div>
-  `;
-
-  // wire to existing ids if they exist in DOM
-}
-
-function clearFilters() {
-  filters = { relativeName: "", gender: "all", age: { mode: "any", a: "", b: "" } };
-}
-
-async function applyFiltersThenSortThenRender() {
-  filteredBase = rankedByRelevance.slice();
-
-  // sort
-  if (sortMode === SORT.RELEVANCE) rankedView = filteredBase.slice();
-  else {
-    const dir = sortMode === SORT.AGE_DESC ? -1 : 1;
-    rankedView = filteredBase.slice().sort((a, b) => {
-      const aa = scoreCache.get(a.key)?.ageParsed ?? null;
-      const bb = scoreCache.get(b.key)?.ageParsed ?? null;
-      const am = aa === null;
-      const bm = bb === null;
-      if (am && bm) return b.score - a.score;
-      if (am) return 1;
-      if (bm) return -1;
-      if (aa !== bb) return (aa - bb) * dir;
-      return b.score - a.score;
+  // gender
+  const g = (filterGender?.value || "").trim();
+  if (g) {
+    base = base.filter((it) => {
+      const r = getScoreRow(it.ac, it.row_id);
+      const rg = String(r?.gender || "").trim();
+      return rg === g;
     });
   }
 
+  // age
+  const minA = parseNum(filterMinAge?.value);
+  const maxA = parseNum(filterMaxAge?.value);
+  if (minA != null || maxA != null) {
+    base = base.filter((it) => {
+      const r = getScoreRow(it.ac, it.row_id);
+      const a = parseNum(r?.age);
+      if (a == null) return false;
+      if (minA != null && a < minA) return false;
+      if (maxA != null && a > maxA) return false;
+      return true;
+    });
+  }
+
+  // local filter query (client-side)
+  const fq = norm(filterQuery?.value || "");
+  if (fq) {
+    const fqLower = fq.toLowerCase();
+    base = base.filter((it) => {
+      const r = getScoreRow(it.ac, it.row_id);
+      const vn = String(r?.voter_name_raw || "").toLowerCase();
+      const rn = String(r?.relative_name_raw || "").toLowerCase();
+      return vn.includes(fqLower) || rn.includes(fqLower);
+    });
+  }
+
+  filteredBase = base;
+}
+
+function applySort() {
+  const mode = sortSelect?.value || "relevance";
+  const arr = filteredBase.slice();
+
+  if (mode === "serial") {
+    arr.sort((a, b) => {
+      const ra = getScoreRow(a.ac, a.row_id);
+      const rb = getScoreRow(b.ac, b.row_id);
+      const sa = parseNum(ra?.serial_no) ?? 0;
+      const sb = parseNum(rb?.serial_no) ?? 0;
+      if (sa !== sb) return sa - sb;
+      if (a.ac !== b.ac) return a.ac - b.ac;
+      return a.row_id - b.row_id;
+    });
+  } else if (mode === "age") {
+    arr.sort((a, b) => {
+      const ra = getScoreRow(a.ac, a.row_id);
+      const rb = getScoreRow(b.ac, b.row_id);
+      const aa = parseNum(ra?.age) ?? 0;
+      const ab = parseNum(rb?.age) ?? 0;
+      if (aa !== ab) return aa - ab;
+      if (a.ac !== b.ac) return a.ac - b.ac;
+      return a.row_id - b.row_id;
+    });
+  } else {
+    // relevance (already sorted)
+    // keep stable ordering
+    arr.sort((a, b) => (b.score !== a.score ? b.score - a.score : a.ac !== b.ac ? a.ac - b.ac : a.row_id - b.row_id));
+  }
+
+  rankedView = arr;
+}
+
+async function applyFiltersThenSortThenRender() {
+  applyFilters();
+  applySort();
+  page = 1;
   await renderPage();
 }
 
-async function renderPage() {
-  if (!rankedView.length) {
-    resultsEl.innerHTML = "";
-    pager.style.display = "none";
-    pageInfo.textContent = "0";
-    resultsCount.textContent = "0";
-    return;
+// ---------- Table rendering ----------
+function getPageSizeOptions() {
+  return isMobile() ? PAGE_SIZE_MOBILE_OPTIONS : PAGE_SIZE_DESKTOP_OPTIONS;
+}
+
+function populatePageSizeSelect() {
+  if (!pageSizeSelect) return;
+  pageSizeSelect.innerHTML = "";
+  const opts = getPageSizeOptions();
+
+  for (const n of opts) {
+    const opt = document.createElement("option");
+    opt.value = String(n);
+    opt.textContent = String(n);
+    pageSizeSelect.appendChild(opt);
   }
+  // keep current if possible
+  if (!opts.includes(pageSize)) pageSize = opts[opts.length - 1];
+  pageSizeSelect.value = String(pageSize);
+}
+
+function renderTableHead() {
+  if (!tableHead) return;
+  const cols = ["AC No", ...DISPLAY_COLS];
+  tableHead.innerHTML = `<tr>${cols
+    .map((c) => `<th>${escapeHtml(i18n.header(c))}</th>`)
+    .join("")}</tr>`;
+}
+
+function renderTableBody(rows) {
+  if (!tableBody) return;
+  tableBody.innerHTML = rows
+    .map((r) => {
+      const ac = r["AC No"] ?? "";
+      const tds = [`<td>${escapeHtml(ac)}</td>`].concat(DISPLAY_COLS.map((c) => `<td>${escapeHtml(r[c] ?? "")}</td>`));
+      return `<tr>${tds.join("")}</tr>`;
+    })
+    .join("");
+}
+
+async function renderPage() {
+  renderTableHead();
+  if (!pagerInfo) return;
 
   const total = rankedView.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  page = Math.max(1, Math.min(page, totalPages));
+  page = Math.min(page, totalPages);
 
   const start = (page - 1) * pageSize;
   const end = Math.min(total, start + pageSize);
 
-  pageInfo.textContent = `${start + 1}-${end} / `;
-  resultsCount.textContent = String(total);
+  pagerInfo.textContent = t("pager_info", { page, totalPages, total });
+
+  if (pagerPrev) pagerPrev.disabled = page <= 1;
+  if (pagerNext) pagerNext.disabled = page >= totalPages;
 
   const slice = rankedView.slice(start, end);
 
-  // group by AC for display fetch
-  const byAc = new Map();
-  for (const item of slice) {
-    if (!byAc.has(item.ac)) byAc.set(item.ac, []);
-    byAc.get(item.ac).push(item.row_id);
+  // Fetch display rows for this page (group by AC)
+  const missingByAc = new Map();
+  for (const it of slice) {
+    const key = makeKey(it.ac, it.row_id);
+    if (!displayCache.has(key)) {
+      if (!missingByAc.has(it.ac)) missingByAc.set(it.ac, []);
+      missingByAc.get(it.ac).push(it.row_id);
+    }
   }
 
-  const rowsOut = [];
-  for (const [ac, ids] of byAc.entries()) {
+  for (const [ac, ids] of missingByAc.entries()) {
     current.ac = ac;
     const rows = await fetchDisplayRowsByIds(ids);
-    for (const r of rows) rowsOut.push(r);
+    for (const r of rows) {
+      const key = makeKey(ac, r.row_id);
+      displayCache.set(key, r);
+    }
   }
 
-  resultsEl.innerHTML = renderTable(rowsOut);
+  const displayRows = slice
+    .map((it) => displayCache.get(makeKey(it.ac, it.row_id)))
+    .filter(Boolean);
 
-  pager.style.display = totalPages > 1 ? "flex" : "none";
-  currentPageCount.textContent = `${page} / ${totalPages}`;
-
-  prevBtn.disabled = page <= 1;
-  nextBtn.disabled = page >= totalPages;
+  renderTableBody(displayRows);
 }
 
-// ---------- Search ----------
-function getActiveQueryInput() {
-  return isResultsVisible() ? qResults : qLanding;
+function renderTable() {
+  renderTableHead();
+  // body will be rendered in renderPage()
 }
 
-function setIncludeTypingChecked(v) {
-  exactToggleLanding.checked = !!v;
-  exactToggleResults.checked = !!v;
-}
-function getIncludeTypingChecked() {
-  return isResultsVisible() ? exactToggleResults.checked : exactToggleLanding.checked;
-}
-function exactOnFromIncludeTyping() {
-  return !Boolean(getIncludeTypingChecked());
-}
-
+// ---------- Main search ----------
 async function runSearch() {
-  const qEl = getActiveQueryInput();
-  const q = norm(qEl.value);
-  if (!q) {
-    setStatus(t("status_enter_query"));
-    return;
+  // Cancel any previous in-flight search (network + worker)
+  cancelInFlightSearch();
+
+  // After cancelInFlightSearch(), searchRunToken has been incremented.
+  const runToken = searchRunToken;
+
+  searchAbortCtrl = new AbortController();
+  const signal = searchAbortCtrl.signal;
+
+  searchInFlight = true;
+  syncSearchButtonState();
+
+  try {
+    const qEl = getActiveQueryInput();
+    const q = norm(qEl.value);
+    if (!q) {
+      setStatus(t("status_enter_query"));
+      return;
+    }
+
+    const districtId = getCurrentDistrictSlug();
+    if (!districtId) {
+      setStatus(t("status_select_district"));
+      return;
+    }
+
+    const acs = getActiveACs();
+    if (!acs.length) {
+      setStatus(t("status_no_acs_selected"));
+      return;
+    }
+
+    rankedByRelevance = [];
+    filteredBase = [];
+    rankedView = [];
+    displayCache.clear();
+    scoreCache.clear();
+    page = 1;
+
+    showResults();
+    setBar(0);
+
+    const exactOn = exactOnFromIncludeTyping();
+    const scopeForWorker = searchScope; // voter | relative | anywhere
+
+    let merged = [];
+
+    for (let i = 0; i < acs.length; i++) {
+      const ac = acs[i];
+      current.ac = ac;
+
+      setStatus(t("status_stage1_loose", { ac }));
+
+      const { candidates, metaByRow } = await getCandidatesForQuery(q, searchScope, exactOn, signal);
+      if (runToken !== searchRunToken) return;
+
+      if (!candidates.length) continue;
+
+      // Fetch score rows in chunks to avoid Netlify/Turso timeouts and large payloads
+      const rows = await fetchRowsByIds(candidates, signal);
+      if (runToken !== searchRunToken) return;
+
+      const rowsWithMeta = rows.map((r) => ({ ...r, _meta: metaByRow.get(r.row_id) || null }));
+
+      const ranked = await runWorkerRanking(rowsWithMeta, q, exactOn, scopeForWorker);
+      if (runToken !== searchRunToken) return;
+
+      for (const r of ranked) merged.push({ key: makeKey(ac, r.row_id), ac, row_id: r.row_id, score: r.score });
+    }
+
+    // Stable ordering: score desc, then AC asc, then row_id asc
+    rankedByRelevance = merged.sort((a, b) =>
+      b.score !== a.score ? b.score - a.score : a.ac !== b.ac ? a.ac - b.ac : a.row_id - b.row_id
+    );
+
+    await applyFiltersThenSortThenRender();
+    setStatus(t("status_ready_results", { n: rankedView.length }));
+  } catch (e) {
+    if (e && (e.name === "AbortError" || String(e.message || "").includes("aborted"))) return;
+    console.error(e);
+    setStatus(String(e && e.message ? e.message : e));
+  } finally {
+    // Only clear if this is still the latest run
+    if (runToken === searchRunToken) {
+      searchInFlight = false;
+      searchAbortCtrl = null;
+      syncSearchButtonState();
+    }
   }
-
-  const districtId = getCurrentDistrictSlug();
-  if (!districtId) {
-    setStatus(t("status_select_district"));
-    return;
-  }
-
-  const acs = getActiveACs();
-  if (!acs.length) {
-    setStatus(t("status_no_acs_selected"));
-    return;
-  }
-
-  rankedByRelevance = [];
-  filteredBase = [];
-  rankedView = [];
-  displayCache.clear();
-  scoreCache.clear();
-  page = 1;
-
-  showResults();
-  setBar(0);
-
-  const exactOn = exactOnFromIncludeTyping();
-  const scopeForWorker = searchScope === SCOPE.ANYWHERE ? SCOPE.VOTER : searchScope;
-
-  let merged = [];
-
-  for (let i = 0; i < acs.length; i++) {
-    const ac = acs[i];
-    current.ac = ac;
-
-    setStatus(t("status_stage1_loose", { ac }));
-
-    const { candidates, metaByRow } = await getCandidatesForQuery(q, searchScope, exactOn);
-    if (!candidates.length) continue;
-
-    const rows = await fetchRowsByIds(candidates);
-    const rowsWithMeta = rows.map((r) => ({ ...r, _meta: metaByRow.get(r.row_id) || null }));
-
-    const ranked = await runWorkerRanking(rowsWithMeta, q, exactOn, scopeForWorker);
-
-    for (const r of ranked) merged.push({ key: makeKey(ac, r.row_id), ac, row_id: r.row_id, score: r.score });
-  }
-
-  rankedByRelevance = merged.sort((a, b) => (b.score !== a.score ? b.score - a.score : a.key.localeCompare(b.key)));
-  await applyFiltersThenSortThenRender();
-  setStatus(t("status_ready_results", { n: rankedView.length }));
-}
-
-// ---------- Chips ----------
-function setActiveChip(scope) {
-  searchScope = scope;
-  chipVoter?.classList.toggle("active", scope === SCOPE.VOTER);
-  chipRelative?.classList.toggle("active", scope === SCOPE.RELATIVE);
-  chipAnywhere?.classList.toggle("active", scope === SCOPE.ANYWHERE);
-  updateMoreFiltersEnabled();
-}
-
-function refreshChipLabels() {
-  // keep existing DOM text via i18n data-i18n
 }
 
 // ---------- Events ----------
-document.addEventListener("click", (ev) => {
-  const inDistrict =
-    districtPopoverLanding?.contains(ev.target) ||
-    districtBtnLanding?.contains(ev.target) ||
-    districtPopover?.contains(ev.target) ||
-    districtBtn?.contains(ev.target);
-  const inAc = acPopover?.contains(ev.target) || selectedAcBtn?.contains(ev.target);
-  const inSort = sortPopover?.contains(ev.target) || sortBtn?.contains(ev.target);
-  const inPage = pageSizePopover?.contains(ev.target) || pageSizeBtn?.contains(ev.target);
-  const inFilters = filtersPopover?.contains(ev.target) || moreFiltersBtn?.contains(ev.target);
-
-  if (!inDistrict) {
-    closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-    closeDistrictPopover(districtPopover, districtBtn);
+function wireEvents() {
+  // scopes
+  for (const el of scopeTabs) {
+    el.addEventListener("click", () => {
+      const s = el.getAttribute("data-scope");
+      if (s) setScope(s);
+    });
   }
-  if (!inAc) closeAcPopover();
-  if (!inSort) closeSortPopover();
-  if (!inPage) closePageSizePopover();
-  if (!inFilters) closeFiltersPopover();
-});
+  setScopeUI(searchScope);
 
-districtBtnLanding.onclick = () => {
-  if (districtPopoverLanding.style.display === "block") closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-  else {
-    closeDistrictPopover(districtPopover, districtBtn);
-    openDistrictPopover(districtPopoverLanding, districtBtnLanding);
+  // language
+  if (langBtnHi) langBtnHi.onclick = () => setLanguage(LANG.HI);
+  if (langBtnHinglish) langBtnHinglish.onclick = () => setLanguage(LANG.HINGLISH);
+  if (langBtnEn) langBtnEn.onclick = () => setLanguage(LANG.EN);
+
+  // district change
+  if (districtSelect) {
+    districtSelect.addEventListener("change", () => {
+      const did = getCurrentDistrictSlug();
+      current.districtId = did;
+      populateACSelectForDistrict(did);
+
+      // landing input enabled only after district
+      syncSearchButtonState();
+
+      // Clear results state
+      rankedByRelevance = [];
+      rankedView = [];
+      filteredBase = [];
+      displayCache.clear();
+      scoreCache.clear();
+      setBar(null);
+      setStatus("");
+      showLanding();
+    });
   }
-};
 
-districtBtn.onclick = () => {
-  if (districtPopover.style.display === "block") closeDistrictPopover(districtPopover, districtBtn);
-  else {
-    closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-    openDistrictPopover(districtPopover, districtBtn);
+  // page size
+  if (pageSizeSelect) {
+    pageSizeSelect.addEventListener("change", async () => {
+      pageSize = Number(pageSizeSelect.value) || pageSize;
+      page = 1;
+      await renderPage();
+    });
   }
-};
 
-selectedAcBtn.onclick = () => {
-  if (acPopover.style.display === "block") closeAcPopover();
-  else openAcPopover();
-};
+  // pager
+  if (pagerPrev) {
+    pagerPrev.addEventListener("click", async () => {
+      page = Math.max(1, page - 1);
+      await renderPage();
+    });
+  }
+  if (pagerNext) {
+    pagerNext.addEventListener("click", async () => {
+      page = page + 1;
+      await renderPage();
+    });
+  }
 
-sortBtn.onclick = () => {
-  if (sortPopover.style.display === "block") closeSortPopover();
-  else openSortPopover();
-};
+  // filters
+  const onFilter = async () => {
+    await applyFiltersThenSortThenRender();
+  };
+  if (filterGender) filterGender.addEventListener("change", onFilter);
+  if (filterMinAge) filterMinAge.addEventListener("input", onFilter);
+  if (filterMaxAge) filterMaxAge.addEventListener("input", onFilter);
+  if (filterQuery) filterQuery.addEventListener("input", onFilter);
+  if (sortSelect) sortSelect.addEventListener("change", onFilter);
 
-pageSizeBtn.onclick = () => {
-  if (pageSizePopover.style.display === "block") closePageSizePopover();
-  else openPageSizePopover();
-};
+  // search buttons
+  if (searchBtnLanding) searchBtnLanding.onclick = () => runSearch();
+  if (searchBtnResults) searchBtnResults.onclick = () => runSearch();
 
-searchBtnLanding.onclick = () => runSearch();
-searchBtnResults.onclick = () => runSearch();
+  // enter key
+  if (qLanding) {
+    qLanding.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runSearch();
+    });
+  }
+  if (qResults) {
+    qResults.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runSearch();
+    });
+  }
 
-qLanding.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") runSearch();
-});
-qResults.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") runSearch();
-});
+  // back
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      setBar(null);
+      showLanding();
+    });
+  }
 
-chipVoter.onclick = () => setActiveChip(SCOPE.VOTER);
-chipRelative.onclick = () => setActiveChip(SCOPE.RELATIVE);
-chipAnywhere.onclick = () => setActiveChip(SCOPE.ANYWHERE);
-
-prevBtn.onclick = async () => {
-  page = Math.max(1, page - 1);
-  await renderPage();
-};
-nextBtn.onclick = async () => {
-  page = page + 1;
-  await renderPage();
-};
-
-clearBtn.onclick = () => {
-  rankedByRelevance = [];
-  filteredBase = [];
-  rankedView = [];
-  displayCache.clear();
-  scoreCache.clear();
-  page = 1;
-  resultsEl.innerHTML = "";
-  pager.style.display = "none";
-  pageInfo.textContent = "0";
-  resultsCount.textContent = "0";
-  showLanding();
-  setStatus(t("status_select_district"));
-};
-
-iosHintCloseLanding?.addEventListener("click", () => (iosHintLanding.style.display = "none"));
-iosHintCloseResults?.addEventListener("click", () => (iosHintResults.style.display = "none"));
-
-// ---------- District popover rendering ----------
-function renderDistrictPopover(popEl, btnEl) {
-  if (!popEl) return;
-
-  const list = (districtManifest?.districts || []).slice();
-  const q = norm(districtQuery).toLowerCase();
-  const filtered = q ? list.filter((d) => d.label.toLowerCase().includes(q)) : list;
-
-  popEl.innerHTML = filtered
-    .map((d) => `<button type="button" class="option" data-id="${d.id}">${escapeHtml(d.label)}</button>`)
-    .join("");
-
-  popEl.querySelectorAll("button.option").forEach((b) => {
-    b.onclick = () => {
-      setDistrictById(b.dataset.id);
-      closeDistrictPopover(popEl, btnEl);
-      closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
-      closeDistrictPopover(districtPopover, districtBtn);
-    };
+  // responsive page size options
+  window.addEventListener("resize", () => {
+    populatePageSizeSelect();
   });
 }
 
 // ---------- Boot ----------
-setMeta(t("status_not_loaded"));
-setStatus(t("status_select_district"));
+async function boot() {
+  try {
+    setStatus(t("status_loading_manifest"));
+    districtLoading = true;
+    syncSearchButtonState();
 
-setActiveChip(SCOPE.VOTER);
-setIncludeTypingChecked(true);
-
-setSearchEnabled(false);
-showLanding();
-
-updateDistrictUI();
-updateSelectedAcText();
-
-setSortMode(SORT.RELEVANCE);
-renderSortPopover();
-
-setupPageSizeDefaultIfNeeded();
-renderPageSizePopover();
-
-let resizeTimer = null;
-window.addEventListener("resize", () => {
-  if (resizeTimer) clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(async () => {
-    resizeTimer = null;
-    const before = pageSize;
-    setupPageSizeDefaultIfNeeded();
-    if (rankedView.length) {
-      const totalPages = Math.max(1, Math.ceil(rankedView.length / pageSize));
-      page = Math.max(1, Math.min(page, totalPages));
-      await renderPage();
+    // init i18n
+    if (typeof i18n.loadSavedLanguageOrDefault === "function") {
+      await i18n.loadSavedLanguageOrDefault();
     }
-    renderPageSizePopover();
-    if (before !== pageSize && pageSizeText) pageSizeText.textContent = String(pageSize);
-  }, 150);
-});
 
-(async () => {
-  setLanguage(loadSavedLanguageOrDefault());
-  await loadDistrictManifest(STATE_CODE_DEFAULT);
-  populateDistrictHiddenSelect();
-  setStatus(t("status_select_district"));
+    renderStaticText();
 
-  // show iOS hint only for iOS Safari
-  if (isIOSSafari()) {
-    if (iosHintLanding) iosHintLanding.style.display = "flex";
-    if (iosHintResults) iosHintResults.style.display = "flex";
-  } else {
-    if (iosHintLanding) iosHintLanding.style.display = "none";
-    if (iosHintResults) iosHintResults.style.display = "none";
+    await loadManifest();
+    populateDistrictSelect();
+
+    populatePageSizeSelect();
+    renderTableHead();
+
+    districtLoading = false;
+    searchEnabled = true;
+    syncSearchButtonState();
+
+    setStatus(t("status_ready"));
+  } catch (e) {
+    console.error(e);
+    setStatus(String(e && e.message ? e.message : e));
   }
+}
 
-  // render district popovers on open
-  const rerender = () => {
-    renderDistrictPopover(districtPopoverLanding, districtBtnLanding);
-    renderDistrictPopover(districtPopover, districtBtn);
-  };
-  rerender();
-
-  // initial enable state
-  syncSearchButtonState();
-})();
+wireEvents();
+boot();
