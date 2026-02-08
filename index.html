@@ -610,6 +610,12 @@
       font-weight: 800;
       cursor: pointer;
     }
+
+    .clearSearchBtn{
+      cursor: pointer;
+      position: absolute;
+    }
+
     .pager .muted{ color: #4a4a4a; font-weight: 700; }
 
     /* --------- popover base --------- */
@@ -799,53 +805,10 @@
 @media (max-width: 680px){
   .filtersRow{ flex-direction: column-reverse; }
   .seg{justify-content: space-evenly;}
-    /* Make results page its own scroll container */
-  body { overflow: hidden; }
-
-  #resultsSection{
-    position: fixed;
-    inset: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-
-    /* JS will overwrite this with the real height */
-    --searchH: 160px;
-  }
-
-  /* Your "search area" should always stay above everything */
-  .resultsTopInner{
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    background: #fbf7ff;
-    padding-bottom: 10px; /* helps avoid seams */
-  }
-
-  /* These are the filter/control rows you want the table to scroll OVER */
-  #iosHintResults,
-  .filtersRow,
-  .resultsMetaRow{
-    position: sticky;
-    top: var(--searchH);
-    z-index: 5;                 /* below table */
-    background: #fbf7ff;
-  }
-
-  /* Table block: moves up over filters, then sticks under search and scrolls inside */
-  .resultsBody{
-    position: sticky;
-    top: var(--searchH);
-    z-index: 10;                /* above filters, below search */
-    height: calc(100dvh - var(--searchH));
-    min-height: 0;              /* important for nested scroll */
-    padding: 12px 12px 0;
-  }
-
-  .tableRegion{
-    height: 100%;
-    overflow: auto;             /* internal table scrolling */
-    -webkit-overflow-scrolling: touch;
-  }
+  .clearSearchBtn{position: absolute; right: 0px; z-index: 60; top: calc(-90.5dvh); width: 120px;}
+  .resultsBody{z-index: 40;}
+  .pager{z-index: 50;}
+  
 }
 
     @media (max-width: 900px){
@@ -1102,7 +1065,7 @@
           <div class="popoverForBottomPosition" style="min-width: 100px;" id="pageSizePopover" aria-hidden="true"></div>
         </div>
 
-        <button class="miniBtn" id="clearBtn" type="button" style="margin-left:auto;" data-i18n="clear">Clear</button>
+        <div class="clearSearchBtn"><button class="miniBtn" id="clearBtn" type="button" style="margin-left:auto;" data-i18n="clear">Clear</button></div>
       </div>
     </div>
   </section>
