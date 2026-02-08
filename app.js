@@ -1,6 +1,7 @@
 // app.js (ES module)
 // Language switch moved to i18n.js (strings + translation runtime).
-// No search logic changed; only i18n block extracted.
+// No search logic changed; only i18n block extracted. 
+//temp comment
 
 import * as duckdb from "./duckdb/duckdb-browser.mjs";
 import { LANG, createI18n } from "./i18n.js";
