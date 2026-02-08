@@ -785,12 +785,12 @@
     @media (max-width: 980px){
       .searchRow{ flex-direction:column; gap: 14px; }
       .searchPill{ min-width: 0; width: 100%; height: 64px; flex-direction: column; height: 136px; border-radius: 32px;}
-      .btnPrimary{ width: 100%; height: 64px; font-size: 20px; }
+      .btnPrimary{height: 64px; font-size: 20px; min-width: none;}
       .underRow{ flex-direction:column; align-items:center; text-align:center; }
       .tip{ max-width: 520px; }
       .resultsTopInner{ flex-direction:column; align-items:stretch; }
-      .resultsPill{ min-width: 0; width: 100%; }
-      .scopeWrap{ margin-left: 0; justify-content:center; flex-direction: column; align-items: flex-start;}
+      .resultsPill{ min-width: 0; width: 100%; height: 64px; flex-direction: column; height: 108px; border-radius: 32px; gap: 8px;}
+      .scopeWrap{ margin-left: 0; justify-content:center; flex-direction: column; align-items: flex-start; gap: 0px; font-size: small; font-weight: 300;}
       .seg button{ min-width: 0; width: 33.33vw; max-width: 160px; }
       .resultsBody{ height: calc(100dvh - 330px); }
       .districtSelWrapBtn{width: -webkit-fill-available;}
@@ -799,10 +799,13 @@
       .hero{max-width: max-content;}
       .filtersRow{ flex-direction: column-reverse; }
       .seg{width: -webkit-fill-available;}
+      .topLayerWrapper{display: flex; flex-direction: row; align-items: flex-end; gap: 8px;}
+      .micBtn{width: 40px; height: 40px; right: 0px;}
+
 
       /* a bit smaller on mobile */
       .districtBtn{ font-size: 16px; }
-      .qInput{ font-size: 16px; }
+      .qInput{ font-size: 16px; padding: 0px;}
 
       :root{
         --bg: #ffffff;
@@ -860,7 +863,7 @@
             </select>
 
             <!-- Landing District selector (custom, same as results) -->
-            <div class="districtSelWrapBtn" style="">
+            <div class="districtSelWrapBtn">
               <select id="districtSel" style="display:none;"></select>
 
               <div class="acShell" aria-label="Select District">
@@ -923,14 +926,14 @@
   <section class="resultsShell" id="resultsSection">
     <div class="resultsTop">
       <div class="resultsTopInner">
-        <div>
+        <div class="topLayerWrapper">
             <div class="resultsPill">
             <select id="stateSelResults" style="display:none;">
                 <option value="S27" selected>S27</option>
             </select>
 
             <!-- District stays in results header (clickable) -->
-            <div style="position:relative;">
+            <div class="districtSelWrapBtn">
                 <div class="acShell" aria-label="Selected District">
                 <button id="districtBtn" class="districtBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
                     <span id="districtMirror" data-i18n="select_district">Select District</span>
