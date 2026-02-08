@@ -1,6 +1,8 @@
 // app.js (ES module)
 // Language switch moved to i18n.js (strings + translation runtime).
 // No search logic changed; only i18n block extracted.
+
+import * as duckdb from "./duckdb/duckdb-browser.mjs";
 import { LANG, createI18n } from "./i18n.js";
 
 /**
@@ -1508,14 +1510,13 @@ function normGenderValue(v) {
 }
 
 async function loadGenderDomain() {
-  // No-op in Turso-backed version (gender filtering happens client-side by fetching Age/Gender for candidate ids).
+  // Turso-backed version: do not query DuckDB. Filters will fetch Gender/Age for candidate ids as needed.
   genderBuckets = { male: new Set(), female: new Set(), other: new Set() };
 }
 
-
 // ---------- Load AC (views swap to that AC) ----------
 async function loadAC(stateCode, acNo) {
-  // Turso-backed: no local parquet loading; we only validate connectivity and cache meta per AC.
+  // Turso-backed: no local parquet loading; just verify DB connectivity and cache a tiny meta per AC.
   current.state = stateCode;
   current.ac = acNo;
 
@@ -1541,7 +1542,6 @@ async function loadAC(stateCode, acNo) {
     return;
   }
 
-  // Lightweight "ping" + voters count (helps keep existing preload/status microinteraction)
   const meta = await callFn("ac_meta", {
     district: districtSlug,
     state: stateCode,
@@ -1559,8 +1559,6 @@ async function loadAC(stateCode, acNo) {
       : `Loaded AC${String(acNo).padStart(2, "0")}`
   );
 }
-
-
 
 /* --------------- REST OF YOUR FILE ---------------
    Everything below here is unchanged EXCEPT:
@@ -1604,9 +1602,6 @@ async function queryIndexCandidates(viewName, keys) {
   }
   return m;
 }
-
-
-function buildKeysFromTokens
 
 function buildKeysFromTokens(tokens, prefixLen) {
   const keys = tokens.map((t) => prefixN(t, prefixLen)).filter(Boolean);
@@ -1813,9 +1808,6 @@ async function fetchRowsByIds(rowIds) {
   return out;
 }
 
-
-// ---------- Worker
-
 // ---------- Worker ----------
 let worker;
 let pendingResolve = null;
@@ -1912,16 +1904,12 @@ async function fetchDisplayRowsByIds(rowIds) {
   });
 
   const rows = resp?.rows || [];
-  // Normalize row_id to number (keep the rest of keys verbatim)
   return rows.map((r) => {
     const out = { ...r };
     out.row_id = Number(out.row_id);
     return out;
   });
 }
-
-
-// ---------- Sorting
 
 // ---------- Sorting ----------
 function parseAgeValue(v) {
@@ -1981,9 +1969,6 @@ async function ensureAgeMapLoaded(keysToLoad) {
 
   setStatus(t("status_age_sort_ready", { done, total }));
 }
-
-
-function setSortMode
 
 function setSortMode(mode) {
   sortMode = mode || SORT.RELEVANCE;
@@ -2057,7 +2042,6 @@ async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc) {
   const districtSlug = slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
 
-  // Fetch Age/Gender for these ids and filter client-side.
   const out = new Set();
 
   for (let i = 0; i < rowIdsInThisAc.length; i += FETCH_ID_CHUNK) {
@@ -2105,9 +2089,6 @@ async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc) {
 
   return out;
 }
-
-
-async function computeRowIdSetByRelativeFilterForAc
 
 async function computeRowIdSetByRelativeFilterForAc(exactOn) {
   const rel = norm(filters.relativeName || "");
