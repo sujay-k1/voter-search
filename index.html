@@ -568,7 +568,7 @@
     .resultsBody{
       max-width: var(--maxw);
       margin: 0 auto;
-      padding: 12px 0px 0;
+      padding: 12px 12px 0;
       display:flex;
       flex-direction:column;
       height: calc(100dvh - 188px);
@@ -613,7 +613,7 @@
 
     .clearSearchBtn{
       cursor: pointer;
-      position: absolute;
+      margin-left: auto;
     }
 
     .pager .muted{ color: #4a4a4a; font-weight: 700; }
@@ -803,9 +803,9 @@
     }
 
 @media (max-width: 680px){
-  .filtersRow{ flex-direction: column-reverse; }
+  .filtersRow{ flex-direction: column; justify-content: space-between; width: -webkit-fill-available;}
   .seg{justify-content: space-evenly;}
-  .clearSearchBtn{position: absolute; right: 0px; z-index: 60; top: calc(-90.5dvh); width: 120px;}
+  .clearSearchBtn{position: absolute; right: 0px; z-index: 60; top: calc(-90.8dvh); width: 120px;}
   .resultsBody{z-index: 40;}
   .pager{z-index: 50;}
   
@@ -830,6 +830,7 @@
       .topLayerWrapper{display: flex; flex-direction: row; align-items: flex-end; gap: 8px;}
       .micBtn{width: 40px; height: 40px; right: 0px;}
       .pager{font-size: small;}
+      .pillBtn{height: 32px;}
 
 
       /* a bit smaller on mobile */
@@ -851,7 +852,7 @@
         --r-24: 24px;
         --r-999: 999px;
         --h-ctl: 56px;
-        --maxw: 860px;
+        --maxw: 900px;
 
         --fs-14: 14px;
         --fs-16: 16px;
