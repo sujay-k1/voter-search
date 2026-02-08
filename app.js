@@ -3165,6 +3165,29 @@ pageSizeBtn.onclick = () => {
   else openPageSizePopover();
 };
 
+(() => {
+  const results = document.getElementById("resultsSection");
+  if (!results) return;
+
+  const searchArea = results.querySelector(".resultsTopInner");
+  if (!searchArea) return;
+
+  const setSearchH = () => {
+    const h = Math.ceil(searchArea.getBoundingClientRect().height);
+    results.style.setProperty("--searchH", `${h}px`);
+  };
+
+  // Initial + responsive updates
+  setSearchH();
+  window.addEventListener("resize", setSearchH, { passive: true });
+
+  // Best: react to wrap/translation changes too
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(setSearchH).observe(searchArea);
+  }
+})();
+
+
 // Language buttons
 $("langHi")?.addEventListener("click", () => setLanguage(LANG.HI));
 $("langHinglish")?.addEventListener("click", () => setLanguage(LANG.HINGLISH));
