@@ -19,6 +19,10 @@
 //
 // Ranking order (best -> worst):
 //   EXACT mode > TYPO_FULL > TYPO_PF > TYPO_ADD_OUTSIDE
+//
+// ✅ FIX 1 (GLOBAL MERGE SUPPORT):
+// Worker now returns the computed lexicographic `key` per row so the main thread
+// can merge across ACs correctly. (Previously app.js used a per-AC fallback score.)
 
 /* =====================
    Character classes
@@ -393,10 +397,6 @@ function outsideSubsCapByLen(qLen) {
 }
 
 // Compares query entities against candidate prefix entities.
-// Allows:
-// - standard substitutions from your sets (not counted as outside)
-// - "outside substitutions" capped by qLen bucket
-// - suffix additions (candidate can be longer)
 function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null = unlimited */) {
   if (!allowConsonantSubs) return { ok: false };
 
@@ -416,7 +416,6 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
   const qLen = qEnt.length;
   const cLen = cEnt.length;
 
-  // candidate must be at least query length for prefix match
   if (cLen < qLen) return { ok: false };
 
   const additions = cLen - qLen;
@@ -425,7 +424,7 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
   const maxOutside = outsideSubsCapByLen(qLen);
 
   let outsideSubs = 0;
-  let consonantMismatches = 0; // includes both set-subs + outside-subs
+  let consonantMismatches = 0;
   let matraMismatches = marksDiff;
 
   let phoneticCount = 0;
@@ -445,7 +444,6 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
 
     const t = substType(a, b);
     if (t === TYPE.OTHER) {
-      // outside substitution
       outsideSubs += 1;
       outsideCount += 1;
       if (outsideSubs > maxOutside) return { ok: false };
@@ -453,7 +451,6 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
       continue;
     }
 
-    // set substitution
     consonantMismatches += 1;
     if (t === TYPE.PHONETIC) phoneticCount += 1;
     else if (t === TYPE.VISUAL_P0) visualP0Count += 1;
@@ -461,7 +458,6 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
     else if (t === TYPE.VISUAL_P2) visualP2Count += 1;
   }
 
-  // type bucket for the prefix area (ignores outside, which is tracked separately)
   const totalVisual = visualP0Count + visualP1Count + visualP2Count;
   let typeBucket = 4;
   if (consonantMismatches === 0) typeBucket = 0;
@@ -632,7 +628,6 @@ function parseSerial(serial) {
    Field evaluation (core)
 ===================== */
 function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
-  // EXACT MODE always outranks typing
   const ex = exactScenarioKey(qToks, candToks);
   if (ex.ok) {
     const key = [0, ex.scenarioId, ex.kindRank, ex.pos, ex.suffixCount, ex.totalWords, serialNo];
@@ -640,12 +635,10 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return { ok: true, key, explain, match_field: fieldName };
   }
 
-  if (exactOn) return { ok: false }; // exact mode disallows consonant subs entirely
+  if (exactOn) return { ok: false };
 
-  // TYPING MODE
   if (candToks.length < qToks.length) return { ok: false };
 
-  // 1-word query: match ANY token position + joins (FULL word compare)
   if (qToks.length === 1) {
     const q = qToks[0];
     const targets = buildOneWordTargets(candToks);
@@ -667,14 +660,12 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
       if (!best || cmpKey(cand.key, best.key) < 0) best = cand;
     }
 
-    // If FULL fails for 1-word, try the new ADD/OUTSIDE fallback against token/join variants
     if (!best) {
       let bestAO = null;
       for (const t of targets) {
-        const rao = compareWordAddOutside(q, t.text, true, null /* unlimited adds */);
+        const rao = compareWordAddOutside(q, t.text, true, null);
         if (!rao.ok) continue;
 
-        // family=2 (lowest), then outsideSubs, then additions, then typeBucket, then matra, then kindRank/pos
         const key = [1, 2, rao.outsideSubs, rao.additions, rao.typeBucket, rao.matraMismatches, kindRank(t.kind), t.pos, serialNo];
         const explain = `mode=TYPO_AO field=${fieldName} outside=${rao.outsideSubs} add=${rao.additions} typeB=${rao.typeBucket} matra=${rao.matraMismatches} kind=${t.kind}@${t.pos} serial=${serialNo}`;
 
@@ -687,10 +678,8 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return best || { ok: false };
   }
 
-  // 2+ word query: align to first qToks.length candidate tokens (prefix match is handled later)
   const aligned = candToks.slice(0, qToks.length);
 
-  // 1) FULL word-to-word (your normal rules)
   const perWordFull = [];
   let totalConFull = 0;
   let totalMatraFull = 0;
@@ -722,7 +711,6 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return { ok: true, key, explain, match_field: fieldName };
   }
 
-  // 2) PF fallback (K=2/3 rule)
   const perWordPF = [];
   let globalExtra = 0;
 
@@ -760,8 +748,6 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return { ok: true, key, explain, match_field: fieldName };
   }
 
-  // 3) NEW lowest-rank fallback: additions + outside substitutions
-  //    Apply word-by-word prefix compare.
   const perWordAO = [];
   let outsideTotal = 0;
   let addTotal = 0;
@@ -777,10 +763,9 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
 
     perWordAO.push(rao);
 
-    // penalize earlier words more (first word integrity)
     const posW = 1.0 + (Math.max(0, (3 - i)) * 0.10);
     outsideTotal += rao.outsideSubs * posW;
-    addTotal += rao.additions * (isFirst ? 2.0 : 1.0); // first-word additions heavier
+    addTotal += rao.additions * (isFirst ? 2.0 : 1.0);
     typeSum += rao.typeBucket * posW;
     matraSum += rao.matraMismatches * posW;
   }
@@ -788,8 +773,6 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
   const suffixCount = candToks.length - qToks.length;
   const totalWords = candToks.length;
 
-  // family=2 => below FULL and PF
-  // Order inside family: outsideSubs (worse), then additions (worse), then type, then matra, then suffixCount, then serial
   const key = [1, 2, outsideTotal, addTotal, typeSum, matraSum, suffixCount, totalWords, serialNo];
 
   const explain =
@@ -896,7 +879,6 @@ self.onmessage = (ev) => {
         const c = cmpKey(a.key, b.key);
         if (c !== 0) return c;
 
-        // deterministic fallback:
         if (a.match_field !== b.match_field) {
           if (a.match_field === "voter") return -1;
           if (b.match_field === "voter") return 1;
@@ -904,10 +886,12 @@ self.onmessage = (ev) => {
         return a.row_id - b.row_id;
       });
 
-      const ranked = buffer.map((x, idx) => ({
+      // ✅ FIX: return `key` so app.js can merge globally across ACs correctly
+      const ranked = buffer.map((x) => ({
         row_id: x.row_id,
-        rank: idx,
-        explain: x.explain
+        key: x.key,
+        explain: x.explain,
+        match_field: x.match_field
       }));
 
       self.postMessage({ type: "done", ranked });

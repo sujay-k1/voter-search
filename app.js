@@ -75,6 +75,31 @@ const PAGE_SIZE_MOBILE_OPTIONS = [10, 25, 50, 100];
 const FETCH_ID_CHUNK = 4000;
 const SCORE_BATCH = 2000;
 
+
+// ---------------- Performance tuning (Turso backend) ----------------
+// AC fetch can be parallelized safely. Worker ranking remains sequential (single worker).
+// If you see 502s, reduce these numbers.
+const AC_FETCH_CONCURRENCY = 3;   // parallel AC pipelines (candidate+row fetch)
+const ROW_FETCH_CONCURRENCY = 2;  // parallel row-chunk fetches per AC
+
+// Simple concurrency helper (promise pool)
+async function mapWithConcurrency(items, limit, fn) {
+  const arr = Array.from(items || []);
+  const n = Math.max(1, Math.min(Number(limit) || 1, arr.length || 1));
+  const out = new Array(arr.length);
+  let next = 0;
+  const workers = Array.from({ length: n }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= arr.length) return;
+      out[i] = await fn(arr[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+
 // IMPORTANT: Keep data keys in English to match parquet columns.
 // UI labels for these keys are translated via i18n in renderTable().
 const DISPLAY_COLS = [
@@ -129,6 +154,7 @@ let pageSize = PAGE_SIZE_DESKTOP_DEFAULT;
 
 // Used to cancel district-preload if user switches district quickly
 let districtPreloadToken = 0;
+let searchToken = 0;
 
 let ageMap = null; // Map(key -> ageNumber|null)
 let displayCache = new Map(); // Map(key -> rowObject)
@@ -1515,49 +1541,47 @@ async function loadGenderDomain() {
 }
 
 // ---------- Load AC (views swap to that AC) ----------
-async function loadAC(stateCode, acNo) {
+async function loadAC(stateCode, acNo, districtSlug = null, opts = {}) {
   // Turso-backed: no local parquet loading; just verify DB connectivity and cache a tiny meta per AC.
-  current.state = stateCode;
-  current.ac = acNo;
+  const { silent = false } = opts || {};
 
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
-  if (!districtSlug) {
-    current.loaded = false;
-    throw new Error("District not selected");
-  }
+  const dslug = districtSlug || slugifyDistrictId(currentDistrictId || "");
+  if (!dslug) throw new Error("District not selected");
 
-  const cacheKey = `${districtSlug}:${Number(acNo)}`;
+  const cacheKey = `${dslug}:${Number(acNo)}`;
   if (!loadAC._metaCache) loadAC._metaCache = new Map();
   const metaCache = loadAC._metaCache;
 
   if (metaCache.has(cacheKey)) {
-    current.meta = metaCache.get(cacheKey);
-    current.loaded = true;
-    const voters = current.meta?.voters;
+    const meta = metaCache.get(cacheKey);
+    if (!silent) {
+      const voters = meta?.voters;
+      setMeta(
+        voters !== undefined
+          ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}`
+          : `Loaded AC${String(acNo).padStart(2, "0")}`
+      );
+    }
+    return meta || null;
+  }
+
+  const meta = await callFn("ac_meta", {
+    district: dslug,
+    state: stateCode,
+    ac: Number(acNo),
+  });
+
+  metaCache.set(cacheKey, meta || null);
+
+  if (!silent) {
+    const voters = meta?.voters;
     setMeta(
       voters !== undefined
         ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}`
         : `Loaded AC${String(acNo).padStart(2, "0")}`
     );
-    return;
   }
-
-  const meta = await callFn("ac_meta", {
-    district: districtSlug,
-    state: stateCode,
-    ac: Number(acNo),
-  });
-
-  current.meta = meta || null;
-  current.loaded = true;
-  metaCache.set(cacheKey, current.meta);
-
-  const voters = current.meta?.voters;
-  setMeta(
-    voters !== undefined
-      ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}`
-      : `Loaded AC${String(acNo).padStart(2, "0")}`
-  );
+  return meta || null;
 }
 
 /* --------------- REST OF YOUR FILE ---------------
@@ -1567,11 +1591,16 @@ async function loadAC(stateCode, acNo) {
 -------------------------------------------------- */
 
 // ---------- Candidate generation ----------
-async function queryIndexCandidates(viewName, keys) {
+async function queryIndexCandidates(viewName, keys, ctx) {
   if (!keys || !keys.length) return new Map();
 
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  const districtSlug = ctx?.districtSlug || slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
+
+  const state = ctx?.state || STATE_CODE_DEFAULT;
+  const ac = Number(ctx?.ac);
+
+  if (!Number.isFinite(ac)) throw new Error("Missing AC");
 
   const viewToTable = {
     idx_voter: "idx_voter_strict",
@@ -1587,8 +1616,8 @@ async function queryIndexCandidates(viewName, keys) {
 
   const resp = await callFn("candidates", {
     district: districtSlug,
-    state: current.state || STATE_CODE_DEFAULT,
-    ac: Number(current.ac),
+    state,
+    ac,
     table,
     keys,
   });
@@ -1613,7 +1642,7 @@ function buildKeysFromTokens(tokens, prefixLen) {
   return Array.from(new Set(keys));
 }
 
-async function getCandidatesForQuery(q, scope, exactOn) {
+async function getCandidatesForQuery(q, scope, exactOn, ctx) {
   const strictTokens = tokenize(q);
   const strictKeys = buildKeysFromTokens(strictTokens, PREFIX_LEN_STRICT);
 
@@ -1646,74 +1675,74 @@ async function getCandidatesForQuery(q, scope, exactOn) {
   if (scope === SCOPE.VOTER) {
     if (strictKeys.length)
       jobs.push(
-        queryIndexCandidates("idx_voter", strictKeys).then(
+        queryIndexCandidates("idx_voter", strictKeys, ctx).then(
           (m) => (strictVoterMap = m)
         )
       );
     if (exactKeys.length)
       jobs.push(
-        queryIndexCandidates("idx_exact_voter", exactKeys).then(
+        queryIndexCandidates("idx_exact_voter", exactKeys, ctx).then(
           (m) => (exactVoterMap = m)
         )
       );
     if (wantLoose && looseKeys.length)
       jobs.push(
-        queryIndexCandidates("idx_loose_voter", looseKeys).then(
+        queryIndexCandidates("idx_loose_voter", looseKeys, ctx).then(
           (m) => (looseVoterMap = m)
         )
       );
   } else if (scope === SCOPE.RELATIVE) {
     if (strictKeys.length)
       jobs.push(
-        queryIndexCandidates("idx_relative", strictKeys).then(
+        queryIndexCandidates("idx_relative", strictKeys, ctx).then(
           (m) => (strictRelMap = m)
         )
       );
     if (exactKeys.length)
       jobs.push(
-        queryIndexCandidates("idx_exact_relative", exactKeys).then(
+        queryIndexCandidates("idx_exact_relative", exactKeys, ctx).then(
           (m) => (exactRelMap = m)
         )
       );
     if (wantLoose && looseKeys.length)
       jobs.push(
-        queryIndexCandidates("idx_loose_relative", looseKeys).then(
+        queryIndexCandidates("idx_loose_relative", looseKeys, ctx).then(
           (m) => (looseRelMap = m)
         )
       );
   } else {
     if (strictKeys.length) {
       jobs.push(
-        queryIndexCandidates("idx_voter", strictKeys).then(
+        queryIndexCandidates("idx_voter", strictKeys, ctx).then(
           (m) => (strictVoterMap = m)
         )
       );
       jobs.push(
-        queryIndexCandidates("idx_relative", strictKeys).then(
+        queryIndexCandidates("idx_relative", strictKeys, ctx).then(
           (m) => (strictRelMap = m)
         )
       );
     }
     if (exactKeys.length) {
       jobs.push(
-        queryIndexCandidates("idx_exact_voter", exactKeys).then(
+        queryIndexCandidates("idx_exact_voter", exactKeys, ctx).then(
           (m) => (exactVoterMap = m)
         )
       );
       jobs.push(
-        queryIndexCandidates("idx_exact_relative", exactKeys).then(
+        queryIndexCandidates("idx_exact_relative", exactKeys, ctx).then(
           (m) => (exactRelMap = m)
         )
       );
     }
     if (wantLoose && looseKeys.length) {
       jobs.push(
-        queryIndexCandidates("idx_loose_voter", looseKeys).then(
+        queryIndexCandidates("idx_loose_voter", looseKeys, ctx).then(
           (m) => (looseVoterMap = m)
         )
       );
       jobs.push(
-        queryIndexCandidates("idx_loose_relative", looseKeys).then(
+        queryIndexCandidates("idx_loose_relative", looseKeys, ctx).then(
           (m) => (looseRelMap = m)
         )
       );
@@ -1776,24 +1805,33 @@ async function getCandidatesForQuery(q, scope, exactOn) {
 }
 
 // ---------- Fetch scoring rows (current loaded AC) ----------
-async function fetchRowsByIds(rowIds) {
+async function fetchRowsByIds(rowIds, ctx) {
   if (!rowIds || !rowIds.length) return [];
 
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  const districtSlug = ctx?.districtSlug || slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
 
-  const out = [];
-  for (let i = 0; i < rowIds.length; i += FETCH_ID_CHUNK) {
-    const chunk = rowIds.slice(i, i + FETCH_ID_CHUNK).map(Number);
+  const state = ctx?.state || STATE_CODE_DEFAULT;
+  const ac = Number(ctx?.ac);
+  if (!Number.isFinite(ac)) throw new Error("Missing AC");
 
-    const resp = await callFn("rows", {
+  const chunks = [];
+  for (let i = 0; i < rowIds.length; i += FETCH_ID_CHUNK) {
+    chunks.push(rowIds.slice(i, i + FETCH_ID_CHUNK).map(Number));
+  }
+
+  const resps = await mapWithConcurrency(chunks, ROW_FETCH_CONCURRENCY, async (chunk) => {
+    return await callFn("rows", {
       district: districtSlug,
-      state: current.state || STATE_CODE_DEFAULT,
-      ac: Number(current.ac),
+      state,
+      ac,
       kind: "score",
       row_ids: chunk,
     });
+  });
 
+  const out = [];
+  for (const resp of resps) {
     for (const r of resp?.rows || []) {
       out.push({
         row_id: Number(r.row_id),
@@ -1805,6 +1843,7 @@ async function fetchRowsByIds(rowIds) {
       });
     }
   }
+
   return out;
 }
 
@@ -1889,16 +1928,20 @@ function buildPdfUrl(row) {
 }
 
 // ---------- Display fetch (current loaded AC) ----------
-async function fetchDisplayRowsByIds(rowIds) {
+async function fetchDisplayRowsByIds(rowIds, ctx) {
   if (!rowIds || !rowIds.length) return [];
 
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  const districtSlug = ctx?.districtSlug || slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
+
+  const state = ctx?.state || STATE_CODE_DEFAULT;
+  const ac = Number(ctx?.ac);
+  if (!Number.isFinite(ac)) throw new Error("Missing AC");
 
   const resp = await callFn("rows", {
     district: districtSlug,
-    state: current.state || STATE_CODE_DEFAULT,
-    ac: Number(current.ac),
+    state,
+    ac,
     kind: "display",
     row_ids: rowIds.map(Number),
   });
@@ -1945,14 +1988,14 @@ async function ensureAgeMapLoaded(keysToLoad) {
   setStatus(t("status_preparing_age_sort"));
 
   for (const [ac, rids] of byAc.entries()) {
-    await loadAC(STATE_CODE_DEFAULT, ac);
+    await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
 
     for (let i = 0; i < rids.length; i += FETCH_ID_CHUNK) {
       const chunk = rids.slice(i, i + FETCH_ID_CHUNK).map(Number);
 
       const resp = await callFn("rows", {
         district: districtSlug,
-        state: current.state || STATE_CODE_DEFAULT,
+        state: STATE_CODE_DEFAULT,
         ac: Number(ac),
         kind: "age",
         row_ids: chunk,
@@ -2033,14 +2076,14 @@ function updateMoreFiltersEnabled() {
 }
 
 // Compute row-id set by Gender/Age for ONE AC (views already loaded)
-async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc) {
+async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc, ac, districtSlug = null) {
   const hasGender = filters.gender !== "all";
   const hasAge = filters.age.mode !== "any";
   if (!hasGender && !hasAge) return null;
   if (!rowIdsInThisAc || !rowIdsInThisAc.length) return new Set();
 
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
-  if (!districtSlug) throw new Error("District not selected");
+  const dslug = districtSlug || slugifyDistrictId(currentDistrictId || "");
+  if (!dslug) throw new Error("District not selected");
 
   const out = new Set();
 
@@ -2048,9 +2091,9 @@ async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc) {
     const chunk = rowIdsInThisAc.slice(i, i + FETCH_ID_CHUNK).map(Number);
 
     const resp = await callFn("rows", {
-      district: districtSlug,
-      state: current.state || STATE_CODE_DEFAULT,
-      ac: Number(current.ac),
+      district: dslug,
+      state: STATE_CODE_DEFAULT,
+      ac: Number(ac),
       kind: "gender_age",
       row_ids: chunk,
     });
@@ -2090,10 +2133,15 @@ async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc) {
   return out;
 }
 
-async function computeRowIdSetByRelativeFilterForAc(exactOn) {
+async function computeRowIdSetByRelativeFilterForAc(exactOn, ac, districtSlug = null) {
   const rel = norm(filters.relativeName || "");
   if (!rel) return null;
-  const { candidates } = await getCandidatesForQuery(rel, SCOPE.RELATIVE, exactOn);
+
+  const dslug = districtSlug || slugifyDistrictId(currentDistrictId || "");
+  if (!dslug) throw new Error("District not selected");
+
+  const ctx = { districtSlug: dslug, state: STATE_CODE_DEFAULT, ac: Number(ac) };
+  const { candidates } = await getCandidatesForQuery(rel, SCOPE.RELATIVE, exactOn, ctx);
   return new Set(candidates.map(Number));
 }
 
@@ -2106,6 +2154,9 @@ async function applyFiltersThenSortThenRender() {
 
   if (searchScope === SCOPE.VOTER && rankedByRelevance.length) {
     const exactOn = exactOnFromIncludeTyping();
+
+    const districtSlug = slugifyDistrictId(currentDistrictId || "");
+    if (!districtSlug) throw new Error("District not selected");
 
     const byAc = new Map();
     for (const x of rankedByRelevance) {
@@ -2122,14 +2173,14 @@ async function applyFiltersThenSortThenRender() {
       acIdx++;
       setStatus(t("status_applying_filters_ac", { ac, i: acIdx, n: byAc.size }));
 
-      await loadAC(STATE_CODE_DEFAULT, ac);
+      await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
 
       let relSet = null;
       if (norm(filters.relativeName || "")) {
-        relSet = await computeRowIdSetByRelativeFilterForAc(exactOn);
+        relSet = await computeRowIdSetByRelativeFilterForAc(exactOn, ac, districtSlug);
       }
 
-      const gaSet = await computeRowIdSetByGenderAndAgeForAc(rowIds);
+      const gaSet = await computeRowIdSetByGenderAndAgeForAc(rowIds, ac, districtSlug);
 
       for (const rid of rowIds) {
         if (relSet && !relSet.has(rid)) continue;
@@ -2191,8 +2242,13 @@ async function runSearch() {
     return;
   }
 
-  const exactOn = exactOnFromIncludeTyping();
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  if (!districtSlug) {
+    setStatus(t("status_select_district_first"));
+    return;
+  }
 
+  const exactOn = exactOnFromIncludeTyping();
   const scopeForWorker = searchScope === SCOPE.ANYWHERE ? SCOPE.VOTER : searchScope;
 
   const acList = getActiveACs();
@@ -2201,46 +2257,97 @@ async function runSearch() {
     return;
   }
 
+  // Cancel any in-flight search work (client-side) by tokening.
+  const token = ++searchToken;
+
   showResults();
   resultsCountEl.textContent = "0";
 
   const merged = [];
 
-  for (let i = 0; i < acList.length; i++) {
-    const ac = acList[i];
+  // Producer/consumer queue: fetch ACs in parallel (limited), rank sequentially (single worker).
+  const readyQueue = [];
+  let readyWake = null;
+  let producersDone = false;
+
+  const wake = () => {
+    if (readyWake) {
+      const w = readyWake;
+      readyWake = null;
+      w();
+    }
+  };
+
+  const ctxForAc = (ac) => ({ districtSlug, state: STATE_CODE_DEFAULT, ac: Number(ac) });
+
+  const producer = mapWithConcurrency(acList, AC_FETCH_CONCURRENCY, async (ac, i) => {
+    if (token !== searchToken) return;
 
     setStatus(t("status_stage0", { ac, i: i + 1, n: acList.length }));
 
-    setDistrictLoading(true);
     try {
-      await loadAC(STATE_CODE_DEFAULT, ac);
+      await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
     } catch (e) {
       console.warn("Skipping AC due to load error:", ac, e);
-      continue;
-    } finally {
-      setDistrictLoading(false);
+      return;
     }
+
+    if (token !== searchToken) return;
 
     setStatus(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac }));
 
-    const { candidates, metaByRow } = await getCandidatesForQuery(qStrict, searchScope, exactOn);
-    if (!candidates.length) continue;
+    const ctx = ctxForAc(ac);
+    const { candidates, metaByRow } = await getCandidatesForQuery(qStrict, searchScope, exactOn, ctx);
+
+    if (!candidates.length) return;
+
+    if (token !== searchToken) return;
 
     setStatus(t("status_stage2", { n: candidates.length, ac }));
 
-    const rows = await fetchRowsByIds(candidates);
+    const rows = await fetchRowsByIds(candidates, ctx);
+
+    if (token !== searchToken) return;
     const rowsWithMeta = rows.map((r) => ({ ...r, _meta: metaByRow.get(r.row_id) || null }));
 
-    setStatus(t("status_stage3", { n: rowsWithMeta.length, ac }));
+    readyQueue.push({ ac, rowsWithMeta });
+    wake();
+  });
 
-    const ranked = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
+  const consumer = (async () => {
+    while (true) {
+      if (token !== searchToken) return;
 
-    for (const r of ranked) {
-      merged.push({ key: makeKey(ac, r.row_id), ac, row_id: r.row_id, score: r.score });
+      if (!readyQueue.length) {
+        if (producersDone) break;
+        await new Promise((res) => (readyWake = res));
+        continue;
+      }
+
+      const item = readyQueue.shift();
+      if (!item) continue;
+
+      const { ac, rowsWithMeta } = item;
+
+      setStatus(t("status_stage3", { n: rowsWithMeta.length, ac }));
+
+      const rankedRows = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
+
+      for (const r of rankedRows) {
+        merged.push({ key: makeKey(ac, r.row_id), ac, row_id: r.row_id, score: r.score });
+      }
+
+      resultsCountEl.textContent = String(merged.length);
     }
+  })();
 
-    resultsCountEl.textContent = String(merged.length);
-  }
+  await producer;
+  producersDone = true;
+  wake();
+
+  await consumer;
+
+  if (token !== searchToken) return;
 
   rankedByRelevance = merged.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -2262,6 +2369,9 @@ async function renderPage() {
   const end = Math.min(total, start + pageSize);
   const slice = rankedView.slice(start, end);
 
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  if (!districtSlug) throw new Error("District not selected");
+
   const missingByAc = new Map();
   for (const x of slice) {
     if (!displayCache.has(x.key)) {
@@ -2275,8 +2385,8 @@ async function renderPage() {
     for (const [ac, rowIds] of missingByAc.entries()) {
       idx++;
       setStatus(t("status_loading_page_rows", { page, ac, i: idx, n: missingByAc.size }));
-      await loadAC(STATE_CODE_DEFAULT, ac);
-      const rows = await fetchDisplayRowsByIds(rowIds);
+      await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
+      const rows = await fetchDisplayRowsByIds(rowIds, { districtSlug, state: STATE_CODE_DEFAULT, ac: Number(ac) });
       for (const r of rows) {
         const k = makeKey(ac, r.row_id);
         displayCache.set(k, r);
