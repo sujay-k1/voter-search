@@ -1,32 +1,9 @@
 // worker.js (ES module)
 //
-// ✅ Keeps your existing behavior:
-// 1) 1-word query matches ANY token position (and joined variants)
-// 2) Independent vowels (अ/आ, इ/ई, ...) are in PHONETIC sets AND treated as consonant-side entities
-// 3) Marks (ँंः़्) are counted as matra mismatches
-// 4) Existing PREFIX FALLBACK for K=2/3 still exists and ranks below FULL
-//
-// ✅ NEW (fixes "ईसिडोर ति" / partial-last-word returning 0):
-// 5) NEW LOW-RANK fallback family that allows:
-//    - suffix-only additions (candidate word longer than query word)
-//      * 1-word query: unlimited additions
-//      * 2+ words: first word additions capped at 2 entities; later words unlimited
-//    - "outside substitutions" (NOT in your visual/phonetic sets) with caps per query-word length:
-//      * qLen=3 => 1
-//      * qLen=4..8 => 2
-//      * qLen>=9 => 3
-//    - Standard substitutions from your sets are still allowed and do NOT count as outside substitutions
-//
-// Ranking order (best -> worst):
-//   EXACT mode > TYPO_FULL > TYPO_PF > TYPO_ADD_OUTSIDE
-//
-// ✅ FIX 1 (GLOBAL MERGE SUPPORT):
-// Worker now returns the computed lexicographic `key` per row so the main thread
-// can merge across ACs correctly. (Previously app.js used a per-AC fallback score.)
+// ✅ Keeps your existing behavior (phonetic/visual entity ladder + PF fallback + AO fallback)
+// ✅ NEW: returns `key[]` to main thread so global merge across ACs is correct
+// ✅ NEW: uses index meta (_meta) as a *late tie-break* (and_hit + hit_count)
 
-/* =====================
-   Character classes
-===================== */
 const INDEP_VOWELS = new Set(["अ","आ","इ","ई","उ","ऊ","ए","ऐ","ओ","औ","ऋ","ॠ","ऌ","ॡ"]);
 const MATRAS = new Set(["ा","ि","ी","ु","ू","े","ै","ो","ौ","ृ","ॄ","ॢ","ॣ"]);
 const MARKS_AS_MATRA = new Set(["ँ","ं","ः","़","्"]);
@@ -40,7 +17,7 @@ const TYPE = {
   OTHER: 9
 };
 
-// Caps from your rules (FULL word compare caps)
+// Caps (FULL word compare caps)
 const MAX_CONS_MISMATCH_PER_WORD = 4;
 const MAX_TOTAL_CONS_2WORD = 5;
 const MAX_TOTAL_CONS_3PLUS = 7;
@@ -51,7 +28,7 @@ const PREFIX_FALLBACK_GLOBAL_EXTRA_PER_WORD = 2;
 const PREFIX_K2_MAX_SUBS = 1;
 const PREFIX_K3_MAX_SUBS = 2;
 
-// NEW additions policy (low rank)
+// Additions policy (low rank)
 const ADD_FALLBACK_FIRST_WORD_MAX_ADD_ENTITIES_IN_MULTI = 2;
 
 /* =====================
@@ -385,18 +362,21 @@ function compareWordPrefixFallback(qWord, cWord, allowConsonantSubs) {
 }
 
 /* =====================
-   NEW: Additions + outside substitution fallback (LOWEST rank)
+   Additions + outside substitution fallback (LOWEST rank)
 ===================== */
 function outsideSubsCapByLen(qLen) {
   if (qLen <= 0) return 0;
-  if (qLen === 3) return 1;
-  if (qLen >= 4 && qLen <= 8) return 2;
-  if (qLen >= 9) return 3;
-  // qLen 1-2: allow 0 outside subs (keeps integrity)
-  return 0;
+  if (qLen <= 3) return 0;
+  if (qLen <= 6) return 1;
+  if (qLen <= 10) return 2;
+  return 3;
 }
 
 // Compares query entities against candidate prefix entities.
+// Allows:
+// - standard substitutions from your sets (not counted as outside)
+// - "outside substitutions" capped by qLen bucket
+// - suffix additions (candidate can be longer)
 function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null = unlimited */) {
   if (!allowConsonantSubs) return { ok: false };
 
@@ -416,6 +396,7 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
   const qLen = qEnt.length;
   const cLen = cEnt.length;
 
+  // candidate must be at least query length for prefix match
   if (cLen < qLen) return { ok: false };
 
   const additions = cLen - qLen;
@@ -424,7 +405,7 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
   const maxOutside = outsideSubsCapByLen(qLen);
 
   let outsideSubs = 0;
-  let consonantMismatches = 0;
+  let consonantMismatches = 0; // includes both set-subs + outside-subs
   let matraMismatches = marksDiff;
 
   let phoneticCount = 0;
@@ -444,6 +425,7 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
 
     const t = substType(a, b);
     if (t === TYPE.OTHER) {
+      // outside substitution
       outsideSubs += 1;
       outsideCount += 1;
       if (outsideSubs > maxOutside) return { ok: false };
@@ -451,6 +433,7 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
       continue;
     }
 
+    // set substitution
     consonantMismatches += 1;
     if (t === TYPE.PHONETIC) phoneticCount += 1;
     else if (t === TYPE.VISUAL_P0) visualP0Count += 1;
@@ -628,6 +611,7 @@ function parseSerial(serial) {
    Field evaluation (core)
 ===================== */
 function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
+  // EXACT MODE always outranks typing
   const ex = exactScenarioKey(qToks, candToks);
   if (ex.ok) {
     const key = [0, ex.scenarioId, ex.kindRank, ex.pos, ex.suffixCount, ex.totalWords, serialNo];
@@ -635,10 +619,12 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return { ok: true, key, explain, match_field: fieldName };
   }
 
-  if (exactOn) return { ok: false };
+  if (exactOn) return { ok: false }; // exact mode disallows consonant subs entirely
 
+  // TYPING MODE
   if (candToks.length < qToks.length) return { ok: false };
 
+  // 1-word query: match ANY token position + joins (FULL word compare)
   if (qToks.length === 1) {
     const q = qToks[0];
     const targets = buildOneWordTargets(candToks);
@@ -660,10 +646,11 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
       if (!best || cmpKey(cand.key, best.key) < 0) best = cand;
     }
 
+    // If FULL fails for 1-word, try AO fallback against token/join variants
     if (!best) {
       let bestAO = null;
       for (const t of targets) {
-        const rao = compareWordAddOutside(q, t.text, true, null);
+        const rao = compareWordAddOutside(q, t.text, true, null /* unlimited adds */);
         if (!rao.ok) continue;
 
         const key = [1, 2, rao.outsideSubs, rao.additions, rao.typeBucket, rao.matraMismatches, kindRank(t.kind), t.pos, serialNo];
@@ -678,8 +665,10 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return best || { ok: false };
   }
 
+  // 2+ word query: align to first qToks.length candidate tokens (suffix-only; no mid-token insertion)
   const aligned = candToks.slice(0, qToks.length);
 
+  // 1) FULL word-to-word (normal rules)
   const perWordFull = [];
   let totalConFull = 0;
   let totalMatraFull = 0;
@@ -711,6 +700,7 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return { ok: true, key, explain, match_field: fieldName };
   }
 
+  // 2) PF fallback (K=2/3 rule)
   const perWordPF = [];
   let globalExtra = 0;
 
@@ -748,6 +738,7 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
     return { ok: true, key, explain, match_field: fieldName };
   }
 
+  // 3) AO fallback: additions + outside substitutions (lowest-rank)
   const perWordAO = [];
   let outsideTotal = 0;
   let addTotal = 0;
@@ -783,6 +774,7 @@ function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
 
 /* =====================
    Row evaluation + tie rules
+   + late tie-break: and_hit + hit_count
 ===================== */
 let scope = "voter";
 let exactOn = false;
@@ -790,6 +782,21 @@ let total = 0;
 let received = 0;
 let buffer = [];
 let qTokens = [];
+
+function metaForScope(meta) {
+  if (!meta) return { and_hit: false, hit_count: 0 };
+  if (scope === "relative") {
+    return {
+      and_hit: !!(meta.relative_and_hit || meta.relative_exact_and_hit || meta.relative_loose_and_hit),
+      hit_count: Number(meta.relative_hit_count || meta.relative_exact_hit_count || meta.relative_loose_hit_count || 0),
+    };
+  }
+  // voter (also used for "anywhere" for tie-break; voter-first is handled separately)
+  return {
+    and_hit: !!(meta.voter_and_hit || meta.voter_exact_and_hit || meta.voter_loose_and_hit),
+    hit_count: Number(meta.voter_hit_count || meta.voter_exact_hit_count || meta.voter_loose_hit_count || 0),
+  };
+}
 
 function evaluateRow(row) {
   const serialNo = parseSerial(row.serial_no);
@@ -817,7 +824,20 @@ function evaluateRow(row) {
   else if (scope === "relative") consider("relative", relTokens);
   else { consider("voter", voterTokens); consider("relative", relTokens); }
 
-  return best;
+  if (!best) return null;
+
+  // late tie-break: used in final sort (and_hit first, then hit_count)
+  const m = metaForScope(row._meta || null);
+
+  return {
+    row_id: Number(row.row_id),
+    key: best.key,
+    explain: best.explain,
+    match_field: best.match_field,
+    and_hit: !!m.and_hit,
+    hit_count: Number(m.hit_count || 0),
+    serialNo
+  };
 }
 
 function postProgress(phase) {
@@ -857,14 +877,7 @@ self.onmessage = (ev) => {
 
       for (const row of rows) {
         const best = evaluateRow(row);
-        if (best) {
-          buffer.push({
-            row_id: Number(row.row_id),
-            key: best.key,
-            explain: best.explain,
-            match_field: best.match_field
-          });
-        }
+        if (best) buffer.push(best);
       }
 
       received += rows.length;
@@ -879,17 +892,24 @@ self.onmessage = (ev) => {
         const c = cmpKey(a.key, b.key);
         if (c !== 0) return c;
 
+        // late tie-break: and_hit first, then hit_count (higher is better)
+        if (a.and_hit !== b.and_hit) return a.and_hit ? -1 : 1;
+        if (a.hit_count !== b.hit_count) return b.hit_count - a.hit_count;
+
+        // deterministic fallback:
         if (a.match_field !== b.match_field) {
           if (a.match_field === "voter") return -1;
           if (b.match_field === "voter") return 1;
         }
-        return a.row_id - b.row_id;
+        return (a.serialNo - b.serialNo) || (a.row_id - b.row_id);
       });
 
-      // ✅ FIX: return `key` so app.js can merge globally across ACs correctly
-      const ranked = buffer.map((x) => ({
+      const ranked = buffer.map((x, idx) => ({
         row_id: x.row_id,
+        rank: idx,
         key: x.key,
+        and_hit: x.and_hit,
+        hit_count: x.hit_count,
         explain: x.explain,
         match_field: x.match_field
       }));

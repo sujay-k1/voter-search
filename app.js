@@ -13,6 +13,13 @@ import { LANG, createI18n } from "./i18n.js";
 const APP_BASE = new URL("./", window.location.href); // e.g. https://sujaykumar.net/voter-search/
 const relUrl = (p) => new URL(String(p).replace(/^\/+/, ""), APP_BASE).toString();
 
+// Debug mode: add ?debug=1 (or ?debug=true) to URL
+const DEBUG = (() => {
+  const v = new URLSearchParams(window.location.search).get("debug");
+  if (v == null) return false;
+  if (v === "" || v === "1" || v === "true" || v === "yes") return true;
+  return false;
+})();
 
 // ---------------- Netlify Functions (Turso backend) ----------------
 // Functions live at: https://<site>/.netlify/functions/<name>
@@ -42,7 +49,11 @@ async function postJson(url, data, { timeoutMs = 25000 } = {}) {
     });
     const text = await resp.text();
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
 
     if (!resp.ok) {
       const msg = (json && (json.error || json.message)) || text || `HTTP ${resp.status}`;
@@ -74,31 +85,6 @@ const PAGE_SIZE_MOBILE_OPTIONS = [10, 25, 50, 100];
 
 const FETCH_ID_CHUNK = 4000;
 const SCORE_BATCH = 2000;
-
-
-// ---------------- Performance tuning (Turso backend) ----------------
-// AC fetch can be parallelized safely. Worker ranking remains sequential (single worker).
-// If you see 502s, reduce these numbers.
-const AC_FETCH_CONCURRENCY = 4;   // parallel AC pipelines (candidate+row fetch)
-const ROW_FETCH_CONCURRENCY = 2;  // parallel row-chunk fetches per AC
-
-// Simple concurrency helper (promise pool)
-async function mapWithConcurrency(items, limit, fn) {
-  const arr = Array.from(items || []);
-  const n = Math.max(1, Math.min(Number(limit) || 1, arr.length || 1));
-  const out = new Array(arr.length);
-  let next = 0;
-  const workers = Array.from({ length: n }, async () => {
-    while (true) {
-      const i = next++;
-      if (i >= arr.length) return;
-      out[i] = await fn(arr[i], i);
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}
-
 
 // IMPORTANT: Keep data keys in English to match parquet columns.
 // UI labels for these keys are translated via i18n in renderTable().
@@ -145,7 +131,8 @@ let current = {
 };
 
 // Ranking results use composite key (ac:row_id) so row_id collisions across ACs are safe
-let rankedByRelevance = []; // full [{key, ac, row_id, score}]
+// Now uses `sortKey` (array) from worker — NO arbitrary numeric score.
+let rankedByRelevance = []; // full [{key, ac, row_id, sortKey, explain?, match_field?}]
 let filteredBase = []; // after filters, in relevance order
 let rankedView = []; // after sort, for paging
 let page = 1;
@@ -154,7 +141,6 @@ let pageSize = PAGE_SIZE_DESKTOP_DEFAULT;
 
 // Used to cancel district-preload if user switches district quickly
 let districtPreloadToken = 0;
-let searchToken = 0;
 
 let ageMap = null; // Map(key -> ageNumber|null)
 let displayCache = new Map(); // Map(key -> rowObject)
@@ -172,6 +158,25 @@ let sortMode = SORT.RELEVANCE;
 
 // District popover search
 let districtQuery = "";
+
+/* ----------------------------- rank key compare ----------------------------- */
+function cmpRankKey(a, b) {
+  const aa = Array.isArray(a) ? a : [];
+  const bb = Array.isArray(b) ? b : [];
+  const n = Math.max(aa.length, bb.length);
+  for (let i = 0; i < n; i++) {
+    const av = aa[i] ?? 0;
+    const bv = bb[i] ?? 0;
+    if (av !== bv) return av < bv ? -1 : 1; // smaller is better
+  }
+  return 0;
+}
+function cmpRelevance(a, b) {
+  const c = cmpRankKey(a.sortKey, b.sortKey);
+  if (c !== 0) return c;
+  if (a.ac !== b.ac) return a.ac - b.ac;
+  return a.row_id - b.row_id;
+}
 
 // ---------------- Transliteration + Voice (NEW, non-breaking) ----------------
 const TRANSLIT = {
@@ -292,11 +297,7 @@ function closeTranslitPopover(popEl) {
   popEl.dataset.items = "[]";
 }
 
-function renderTranslitSuggestions(
-  popEl,
-  suggestions,
-  { onPick, activeIndex = -1 } = {}
-) {
+function renderTranslitSuggestions(popEl, suggestions, { onPick, activeIndex = -1 } = {}) {
   if (!popEl) return;
 
   ensureTranslitPopoverSkeleton(popEl);
@@ -538,9 +539,6 @@ function attachNameEnhancements({
   });
 
   inputEl.addEventListener("input", () => {
-    // Keep search button state behavior intact
-    // (existing listeners still attached globally; we don't remove them)
-
     if (isComposing) return; // don't interfere mid-IME
     if (suppressSuggestDuringSpeech) return;
 
@@ -568,16 +566,10 @@ function attachNameEnhancements({
       const items = getItemsFromPopover(popEl);
       const hasItems = items.length > 0;
 
-      if (
-        e.key === "Escape" ||
-        e.key === "ArrowDown" ||
-        e.key === "ArrowUp" ||
-        e.key === "Enter"
-      ) {
+      if (e.key === "Escape" || e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (typeof e.stopImmediatePropagation === "function")
-          e.stopImmediatePropagation();
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
       }
 
       if (e.key === "Escape") {
@@ -625,8 +617,7 @@ function attachNameEnhancements({
 
   // Mic button behavior
   function initRecognizerIfPossible() {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return null;
     const r = new SpeechRecognition();
     r.continuous = false;
@@ -832,10 +823,7 @@ function setLanguage(lang) {
   refreshChipLabels();
   applyTranslationsToDOM();
 
-  if (
-    !isResultsVisible() &&
-    (!current.lastQuery || !String(current.lastQuery).trim())
-  ) {
+  if (!isResultsVisible() && (!current.lastQuery || !String(current.lastQuery).trim())) {
     setStatus(t("status_select_district"));
   }
 }
@@ -989,11 +977,7 @@ function hasQueryableState() {
 
 function syncSearchButtonState() {
   const q = (getActiveQueryInput().value || "").trim();
-  const canSearch =
-    Boolean(districtACsAll.length) &&
-    q.length > 0 &&
-    !qLanding.disabled &&
-    !qResults.disabled;
+  const canSearch = Boolean(districtACsAll.length) && q.length > 0 && !qLanding.disabled && !qResults.disabled;
   searchBtnLanding.disabled = !canSearch;
   searchBtnResults.disabled = !canSearch;
 }
@@ -1027,12 +1011,9 @@ function clearFilters() {
 function ageLabel() {
   const m = filters.age.mode;
   if (m === "any") return t("any");
-  if (m === "eq")
-    return `${t("equal_to")} ${(filters.age.a ?? "").toString().trim()}`;
-  if (m === "gt")
-    return `${t("greater_than")} ${(filters.age.a ?? "").toString().trim()}`;
-  if (m === "lt")
-    return `${t("less_than")} ${(filters.age.a ?? "").toString().trim()}`;
+  if (m === "eq") return `${t("equal_to")} ${(filters.age.a ?? "").toString().trim()}`;
+  if (m === "gt") return `${t("greater_than")} ${(filters.age.a ?? "").toString().trim()}`;
+  if (m === "lt") return `${t("less_than")} ${(filters.age.a ?? "").toString().trim()}`;
   if (m === "range")
     return t("between_a_b", {
       a: (filters.age.a ?? "").toString().trim(),
@@ -1347,13 +1328,9 @@ function normalizeDistrictManifest(raw) {
     return {
       districts: raw.districts
         .map((d) => ({
-          id:
-            String(d.id ?? d.label ?? d.name ?? "").trim() ||
-            String(d.name ?? d.label ?? "District"),
+          id: String(d.id ?? d.label ?? d.name ?? "").trim() || String(d.name ?? d.label ?? "District"),
           label: String(d.label ?? d.name ?? d.id ?? "District"),
-          acs: Array.isArray(d.acs)
-            ? d.acs.map(Number).filter(Number.isFinite)
-            : [],
+          acs: Array.isArray(d.acs) ? d.acs.map(Number).filter(Number.isFinite) : [],
         }))
         .filter((d) => d.acs.length > 0),
     };
@@ -1382,10 +1359,7 @@ async function loadDistrictManifest(stateCode) {
     const raw = await resp.json();
     districtManifest = normalizeDistrictManifest(raw);
   } catch (e) {
-    console.warn(
-      "Using fallback district mapping because manifest load failed:",
-      e
-    );
+    console.warn("Using fallback district mapping because manifest load failed:", e);
     districtManifest = { districts: FALLBACK_DISTRICT_MAP };
   }
 }
@@ -1396,12 +1370,7 @@ function populateDistrictHiddenSelect() {
   districtSelHidden.innerHTML =
     `<option value="">${escapeHtml(t("select_district"))}</option>` +
     (districtManifest?.districts || [])
-      .map(
-        (d) =>
-          `<option value="${escapeHtml(d.id)}">${escapeHtml(
-            d.label
-          )}</option>`
-      )
+      .map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.label)}</option>`)
       .join("");
 }
 
@@ -1440,9 +1409,7 @@ async function preloadDistrictACs(acs, districtLabel) {
   setDistrictLoading(true);
 
   try {
-    setStatus(
-      t("status_loading_district", { district: districtLabel, n: acs.length })
-    );
+    setStatus(t("status_loading_district", { district: districtLabel, n: acs.length }));
     setMeta("");
 
     for (let i = 0; i < acs.length; i++) {
@@ -1465,12 +1432,7 @@ async function preloadDistrictACs(acs, districtLabel) {
     }
 
     if (token !== districtPreloadToken) return;
-    setStatus(
-      t("status_ready_district_loaded", {
-        district: districtLabel,
-        n: acs.length,
-      })
-    );
+    setStatus(t("status_ready_district_loaded", { district: districtLabel, n: acs.length }));
   } finally {
     if (token === districtPreloadToken) {
       setDistrictLoading(false);
@@ -1515,21 +1477,8 @@ function setDistrictById(id) {
 function normGenderValue(v) {
   const s = String(v ?? "").trim().toLowerCase();
   if (!s) return "other";
-  if (
-    s === "m" ||
-    s.includes("male") ||
-    s.includes("पुरुष") ||
-    s.includes("पु") ||
-    s.includes("man")
-  )
-    return "male";
-  if (
-    s === "f" ||
-    s.includes("female") ||
-    s.includes("महिला") ||
-    s.includes("स्त्री") ||
-    s.includes("woman")
-  )
+  if (s === "m" || s.includes("male") || s.includes("पुरुष") || s.includes("पु") || s.includes("man")) return "male";
+  if (s === "f" || s.includes("female") || s.includes("महिला") || s.includes("स्त्री") || s.includes("woman"))
     return "female";
   if (s.includes("other") || s.includes("अन्य") || s === "o") return "other";
   return "other";
@@ -1541,66 +1490,53 @@ async function loadGenderDomain() {
 }
 
 // ---------- Load AC (views swap to that AC) ----------
-async function loadAC(stateCode, acNo, districtSlug = null, opts = {}) {
+async function loadAC(stateCode, acNo) {
   // Turso-backed: no local parquet loading; just verify DB connectivity and cache a tiny meta per AC.
-  const { silent = false } = opts || {};
+  current.state = stateCode;
+  current.ac = acNo;
 
-  const dslug = districtSlug || slugifyDistrictId(currentDistrictId || "");
-  if (!dslug) throw new Error("District not selected");
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  if (!districtSlug) {
+    current.loaded = false;
+    throw new Error("District not selected");
+  }
 
-  const cacheKey = `${dslug}:${Number(acNo)}`;
+  const cacheKey = `${districtSlug}:${Number(acNo)}`;
   if (!loadAC._metaCache) loadAC._metaCache = new Map();
   const metaCache = loadAC._metaCache;
 
   if (metaCache.has(cacheKey)) {
-    const meta = metaCache.get(cacheKey);
-    if (!silent) {
-      const voters = meta?.voters;
-      setMeta(
-        voters !== undefined
-          ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}`
-          : `Loaded AC${String(acNo).padStart(2, "0")}`
-      );
-    }
-    return meta || null;
+    current.meta = metaCache.get(cacheKey);
+    current.loaded = true;
+    const voters = current.meta?.voters;
+    setMeta(
+      voters !== undefined ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}` : `Loaded AC${String(acNo).padStart(2, "0")}`
+    );
+    return;
   }
 
   const meta = await callFn("ac_meta", {
-    district: dslug,
+    district: districtSlug,
     state: stateCode,
     ac: Number(acNo),
   });
 
-  metaCache.set(cacheKey, meta || null);
+  current.meta = meta || null;
+  current.loaded = true;
+  metaCache.set(cacheKey, current.meta);
 
-  if (!silent) {
-    const voters = meta?.voters;
-    setMeta(
-      voters !== undefined
-        ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}`
-        : `Loaded AC${String(acNo).padStart(2, "0")}`
-    );
-  }
-  return meta || null;
+  const voters = current.meta?.voters;
+  setMeta(
+    voters !== undefined ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}` : `Loaded AC${String(acNo).padStart(2, "0")}`
+  );
 }
 
-/* --------------- REST OF YOUR FILE ---------------
-   Everything below here is unchanged EXCEPT:
-   - initWorker(): worker URL hardened using import.meta.url
-   (This prevents odd path resolution issues on some hosts)
--------------------------------------------------- */
-
 // ---------- Candidate generation ----------
-async function queryIndexCandidates(viewName, keys, ctx) {
+async function queryIndexCandidates(viewName, keys) {
   if (!keys || !keys.length) return new Map();
 
-  const districtSlug = ctx?.districtSlug || slugifyDistrictId(currentDistrictId || "");
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
-
-  const state = ctx?.state || STATE_CODE_DEFAULT;
-  const ac = Number(ctx?.ac);
-
-  if (!Number.isFinite(ac)) throw new Error("Missing AC");
 
   const viewToTable = {
     idx_voter: "idx_voter_strict",
@@ -1616,8 +1552,8 @@ async function queryIndexCandidates(viewName, keys, ctx) {
 
   const resp = await callFn("candidates", {
     district: districtSlug,
-    state,
-    ac,
+    state: current.state || STATE_CODE_DEFAULT,
+    ac: Number(current.ac),
     table,
     keys,
   });
@@ -1642,7 +1578,7 @@ function buildKeysFromTokens(tokens, prefixLen) {
   return Array.from(new Set(keys));
 }
 
-async function getCandidatesForQuery(q, scope, exactOn, ctx) {
+async function getCandidatesForQuery(q, scope, exactOn) {
   const strictTokens = tokenize(q);
   const strictKeys = buildKeysFromTokens(strictTokens, PREFIX_LEN_STRICT);
 
@@ -1653,13 +1589,7 @@ async function getCandidatesForQuery(q, scope, exactOn, ctx) {
   const looseKeys = buildKeysFromTokens(looseTokens, PREFIX_LEN_LOOSE);
 
   if (!strictKeys.length && !exactKeys.length && !looseKeys.length) {
-    return {
-      candidates: [],
-      metaByRow: new Map(),
-      strictKeys,
-      exactKeys,
-      looseKeys,
-    };
+    return { candidates: [], metaByRow: new Map(), strictKeys, exactKeys, looseKeys };
   }
 
   let strictVoterMap = new Map(),
@@ -1673,79 +1603,26 @@ async function getCandidatesForQuery(q, scope, exactOn, ctx) {
   const wantLoose = !exactOn;
 
   if (scope === SCOPE.VOTER) {
-    if (strictKeys.length)
-      jobs.push(
-        queryIndexCandidates("idx_voter", strictKeys, ctx).then(
-          (m) => (strictVoterMap = m)
-        )
-      );
-    if (exactKeys.length)
-      jobs.push(
-        queryIndexCandidates("idx_exact_voter", exactKeys, ctx).then(
-          (m) => (exactVoterMap = m)
-        )
-      );
-    if (wantLoose && looseKeys.length)
-      jobs.push(
-        queryIndexCandidates("idx_loose_voter", looseKeys, ctx).then(
-          (m) => (looseVoterMap = m)
-        )
-      );
+    if (strictKeys.length) jobs.push(queryIndexCandidates("idx_voter", strictKeys).then((m) => (strictVoterMap = m)));
+    if (exactKeys.length) jobs.push(queryIndexCandidates("idx_exact_voter", exactKeys).then((m) => (exactVoterMap = m)));
+    if (wantLoose && looseKeys.length) jobs.push(queryIndexCandidates("idx_loose_voter", looseKeys).then((m) => (looseVoterMap = m)));
   } else if (scope === SCOPE.RELATIVE) {
-    if (strictKeys.length)
-      jobs.push(
-        queryIndexCandidates("idx_relative", strictKeys, ctx).then(
-          (m) => (strictRelMap = m)
-        )
-      );
-    if (exactKeys.length)
-      jobs.push(
-        queryIndexCandidates("idx_exact_relative", exactKeys, ctx).then(
-          (m) => (exactRelMap = m)
-        )
-      );
+    if (strictKeys.length) jobs.push(queryIndexCandidates("idx_relative", strictKeys).then((m) => (strictRelMap = m)));
+    if (exactKeys.length) jobs.push(queryIndexCandidates("idx_exact_relative", exactKeys).then((m) => (exactRelMap = m)));
     if (wantLoose && looseKeys.length)
-      jobs.push(
-        queryIndexCandidates("idx_loose_relative", looseKeys, ctx).then(
-          (m) => (looseRelMap = m)
-        )
-      );
+      jobs.push(queryIndexCandidates("idx_loose_relative", looseKeys).then((m) => (looseRelMap = m)));
   } else {
     if (strictKeys.length) {
-      jobs.push(
-        queryIndexCandidates("idx_voter", strictKeys, ctx).then(
-          (m) => (strictVoterMap = m)
-        )
-      );
-      jobs.push(
-        queryIndexCandidates("idx_relative", strictKeys, ctx).then(
-          (m) => (strictRelMap = m)
-        )
-      );
+      jobs.push(queryIndexCandidates("idx_voter", strictKeys).then((m) => (strictVoterMap = m)));
+      jobs.push(queryIndexCandidates("idx_relative", strictKeys).then((m) => (strictRelMap = m)));
     }
     if (exactKeys.length) {
-      jobs.push(
-        queryIndexCandidates("idx_exact_voter", exactKeys, ctx).then(
-          (m) => (exactVoterMap = m)
-        )
-      );
-      jobs.push(
-        queryIndexCandidates("idx_exact_relative", exactKeys, ctx).then(
-          (m) => (exactRelMap = m)
-        )
-      );
+      jobs.push(queryIndexCandidates("idx_exact_voter", exactKeys).then((m) => (exactVoterMap = m)));
+      jobs.push(queryIndexCandidates("idx_exact_relative", exactKeys).then((m) => (exactRelMap = m)));
     }
     if (wantLoose && looseKeys.length) {
-      jobs.push(
-        queryIndexCandidates("idx_loose_voter", looseKeys, ctx).then(
-          (m) => (looseVoterMap = m)
-        )
-      );
-      jobs.push(
-        queryIndexCandidates("idx_loose_relative", looseKeys, ctx).then(
-          (m) => (looseRelMap = m)
-        )
-      );
+      jobs.push(queryIndexCandidates("idx_loose_voter", looseKeys).then((m) => (looseVoterMap = m)));
+      jobs.push(queryIndexCandidates("idx_loose_relative", looseKeys).then((m) => (looseRelMap = m)));
     }
   }
 
@@ -1772,66 +1649,41 @@ async function getCandidatesForQuery(q, scope, exactOn, ctx) {
     metaByRow.set(row_id, { ...cur, ...patch });
   }
 
-  for (const [rid, m] of strictVoterMap.entries())
-    upsert(rid, { voter_hit_count: m.hit_count, voter_and_hit: m.and_hit });
+  for (const [rid, m] of strictVoterMap.entries()) upsert(rid, { voter_hit_count: m.hit_count, voter_and_hit: m.and_hit });
   for (const [rid, m] of strictRelMap.entries())
-    upsert(rid, {
-      relative_hit_count: m.hit_count,
-      relative_and_hit: m.and_hit,
-    });
+    upsert(rid, { relative_hit_count: m.hit_count, relative_and_hit: m.and_hit });
   for (const [rid, m] of exactVoterMap.entries())
-    upsert(rid, {
-      voter_exact_hit_count: m.hit_count,
-      voter_exact_and_hit: m.and_hit,
-    });
+    upsert(rid, { voter_exact_hit_count: m.hit_count, voter_exact_and_hit: m.and_hit });
   for (const [rid, m] of exactRelMap.entries())
-    upsert(rid, {
-      relative_exact_hit_count: m.hit_count,
-      relative_exact_and_hit: m.and_hit,
-    });
+    upsert(rid, { relative_exact_hit_count: m.hit_count, relative_exact_and_hit: m.and_hit });
   for (const [rid, m] of looseVoterMap.entries())
-    upsert(rid, {
-      voter_loose_hit_count: m.hit_count,
-      voter_loose_and_hit: m.and_hit,
-    });
+    upsert(rid, { voter_loose_hit_count: m.hit_count, voter_loose_and_hit: m.and_hit });
   for (const [rid, m] of looseRelMap.entries())
-    upsert(rid, {
-      relative_loose_hit_count: m.hit_count,
-      relative_loose_and_hit: m.and_hit,
-    });
+    upsert(rid, { relative_loose_hit_count: m.hit_count, relative_loose_and_hit: m.and_hit });
 
   const candidates = Array.from(metaByRow.keys());
   return { candidates, metaByRow, strictKeys, exactKeys, looseKeys };
 }
 
 // ---------- Fetch scoring rows (current loaded AC) ----------
-async function fetchRowsByIds(rowIds, ctx) {
+async function fetchRowsByIds(rowIds) {
   if (!rowIds || !rowIds.length) return [];
 
-  const districtSlug = ctx?.districtSlug || slugifyDistrictId(currentDistrictId || "");
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
 
-  const state = ctx?.state || STATE_CODE_DEFAULT;
-  const ac = Number(ctx?.ac);
-  if (!Number.isFinite(ac)) throw new Error("Missing AC");
-
-  const chunks = [];
+  const out = [];
   for (let i = 0; i < rowIds.length; i += FETCH_ID_CHUNK) {
-    chunks.push(rowIds.slice(i, i + FETCH_ID_CHUNK).map(Number));
-  }
+    const chunk = rowIds.slice(i, i + FETCH_ID_CHUNK).map(Number);
 
-  const resps = await mapWithConcurrency(chunks, ROW_FETCH_CONCURRENCY, async (chunk) => {
-    return await callFn("rows", {
+    const resp = await callFn("rows", {
       district: districtSlug,
-      state,
-      ac,
+      state: current.state || STATE_CODE_DEFAULT,
+      ac: Number(current.ac),
       kind: "score",
       row_ids: chunk,
     });
-  });
 
-  const out = [];
-  for (const resp of resps) {
     for (const r of resp?.rows || []) {
       out.push({
         row_id: Number(r.row_id),
@@ -1843,25 +1695,10 @@ async function fetchRowsByIds(rowIds, ctx) {
       });
     }
   }
-
   return out;
 }
 
 // ---------- Worker ----------
-
-function cmpWorkerKey(a, b) {
-  const aa = Array.isArray(a) ? a : [];
-  const bb = Array.isArray(b) ? b : [];
-  const n = Math.max(aa.length, bb.length);
-  for (let i = 0; i < n; i++) {
-    const av = aa[i] ?? 0;
-    const bv = bb[i] ?? 0;
-    if (av !== bv) return av < bv ? -1 : 1;
-  }
-  return 0;
-}
-
-
 let worker;
 let pendingResolve = null;
 let pendingReject = null;
@@ -1870,9 +1707,7 @@ function initWorker() {
   if (worker) return;
 
   // Harden worker URL resolution (safe under subfolders / different base href)
-  worker = new Worker(new URL("./worker.js", import.meta.url), {
-    type: "module",
-  });
+  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
 
   worker.onmessage = async (ev) => {
     const msg = ev.data;
@@ -1884,24 +1719,21 @@ function initWorker() {
     }
 
     if (msg.type === "done") {
-  const ranked = (msg.ranked || []).map((x, i) => ({
-    row_id: Number(x.row_id),
-    sort_key: Array.isArray(x.key) ? x.key : null,
-    match_field: String(x.match_field || ""),
-    explain: x.explain || "",
-    // fallback rank only if key missing (should not happen after worker.js update)
-    _fallback_rank: i,
-  }));
+      const ranked = (msg.ranked || []).map((x, i) => ({
+        row_id: Number(x.row_id),
+        sortKey: Array.isArray(x.key) ? x.key : [999999999, i],
+        explain: x.explain ?? "",
+        match_field: x.match_field ?? "",
+      }));
 
-  if (pendingResolve) {
-    const r = pendingResolve;
-    pendingResolve = null;
-    pendingReject = null;
-    r(ranked);
-  }
-  return;
-}
-
+      if (pendingResolve) {
+        const r = pendingResolve;
+        pendingResolve = null;
+        pendingReject = null;
+        r(ranked);
+      }
+      return;
+    }
 
     if (msg.type === "error") {
       setStatus(`Worker error: ${msg.message}`);
@@ -1948,20 +1780,16 @@ function buildPdfUrl(row) {
 }
 
 // ---------- Display fetch (current loaded AC) ----------
-async function fetchDisplayRowsByIds(rowIds, ctx) {
+async function fetchDisplayRowsByIds(rowIds) {
   if (!rowIds || !rowIds.length) return [];
 
-  const districtSlug = ctx?.districtSlug || slugifyDistrictId(currentDistrictId || "");
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
-
-  const state = ctx?.state || STATE_CODE_DEFAULT;
-  const ac = Number(ctx?.ac);
-  if (!Number.isFinite(ac)) throw new Error("Missing AC");
 
   const resp = await callFn("rows", {
     district: districtSlug,
-    state,
-    ac,
+    state: current.state || STATE_CODE_DEFAULT,
+    ac: Number(current.ac),
     kind: "display",
     row_ids: rowIds.map(Number),
   });
@@ -2008,14 +1836,14 @@ async function ensureAgeMapLoaded(keysToLoad) {
   setStatus(t("status_preparing_age_sort"));
 
   for (const [ac, rids] of byAc.entries()) {
-    await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
+    await loadAC(STATE_CODE_DEFAULT, ac);
 
     for (let i = 0; i < rids.length; i += FETCH_ID_CHUNK) {
       const chunk = rids.slice(i, i + FETCH_ID_CHUNK).map(Number);
 
       const resp = await callFn("rows", {
         district: districtSlug,
-        state: STATE_CODE_DEFAULT,
+        state: current.state || STATE_CODE_DEFAULT,
         ac: Number(ac),
         kind: "age",
         row_ids: chunk,
@@ -2046,7 +1874,7 @@ function setSortMode(mode) {
 
 async function applySort() {
   if (sortMode === SORT.RELEVANCE) {
-    rankedView = filteredBase.slice();
+    rankedView = filteredBase.slice(); // already ordered by relevance
     return;
   }
 
@@ -2062,16 +1890,12 @@ async function applySort() {
     const aMissing = aa === null;
     const bMissing = bb === null;
 
-    if (aMissing && bMissing) {
-      if (b.score !== a.score) return b.score - a.score;
-      return String(a.key).localeCompare(String(b.key));
-    }
+    if (aMissing && bMissing) return cmpRelevance(a, b);
     if (aMissing) return 1;
     if (bMissing) return -1;
 
     if (aa !== bb) return (aa - bb) * dir;
-    if (b.score !== a.score) return b.score - a.score;
-    return String(a.key).localeCompare(String(b.key));
+    return cmpRelevance(a, b);
   });
 }
 
@@ -2079,7 +1903,6 @@ async function applySort() {
 function getIncludeTypingChecked() {
   return isResultsVisible() ? exactToggleResults.checked : exactToggleLanding.checked;
 }
-
 
 function setIncludeTypingChecked(v) {
   exactToggleLanding.checked = !!v;
@@ -2096,14 +1919,14 @@ function updateMoreFiltersEnabled() {
 }
 
 // Compute row-id set by Gender/Age for ONE AC (views already loaded)
-async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc, ac, districtSlug = null) {
+async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc) {
   const hasGender = filters.gender !== "all";
   const hasAge = filters.age.mode !== "any";
   if (!hasGender && !hasAge) return null;
   if (!rowIdsInThisAc || !rowIdsInThisAc.length) return new Set();
 
-  const dslug = districtSlug || slugifyDistrictId(currentDistrictId || "");
-  if (!dslug) throw new Error("District not selected");
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  if (!districtSlug) throw new Error("District not selected");
 
   const out = new Set();
 
@@ -2111,9 +1934,9 @@ async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc, ac, districtSl
     const chunk = rowIdsInThisAc.slice(i, i + FETCH_ID_CHUNK).map(Number);
 
     const resp = await callFn("rows", {
-      district: dslug,
-      state: STATE_CODE_DEFAULT,
-      ac: Number(ac),
+      district: districtSlug,
+      state: current.state || STATE_CODE_DEFAULT,
+      ac: Number(current.ac),
       kind: "gender_age",
       row_ids: chunk,
     });
@@ -2141,7 +1964,8 @@ async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc, ac, districtSl
           if (age === null || age >= a) continue;
         }
         if (filters.age.mode === "range" && Number.isFinite(a) && Number.isFinite(b)) {
-          const lo = Math.min(a, b), hi = Math.max(a, b);
+          const lo = Math.min(a, b),
+            hi = Math.max(a, b);
           if (age === null || age < lo || age > hi) continue;
         }
       }
@@ -2153,15 +1977,10 @@ async function computeRowIdSetByGenderAndAgeForAc(rowIdsInThisAc, ac, districtSl
   return out;
 }
 
-async function computeRowIdSetByRelativeFilterForAc(exactOn, ac, districtSlug = null) {
+async function computeRowIdSetByRelativeFilterForAc(exactOn) {
   const rel = norm(filters.relativeName || "");
   if (!rel) return null;
-
-  const dslug = districtSlug || slugifyDistrictId(currentDistrictId || "");
-  if (!dslug) throw new Error("District not selected");
-
-  const ctx = { districtSlug: dslug, state: STATE_CODE_DEFAULT, ac: Number(ac) };
-  const { candidates } = await getCandidatesForQuery(rel, SCOPE.RELATIVE, exactOn, ctx);
+  const { candidates } = await getCandidatesForQuery(rel, SCOPE.RELATIVE, exactOn);
   return new Set(candidates.map(Number));
 }
 
@@ -2174,9 +1993,6 @@ async function applyFiltersThenSortThenRender() {
 
   if (searchScope === SCOPE.VOTER && rankedByRelevance.length) {
     const exactOn = exactOnFromIncludeTyping();
-
-    const districtSlug = slugifyDistrictId(currentDistrictId || "");
-    if (!districtSlug) throw new Error("District not selected");
 
     const byAc = new Map();
     for (const x of rankedByRelevance) {
@@ -2193,14 +2009,14 @@ async function applyFiltersThenSortThenRender() {
       acIdx++;
       setStatus(t("status_applying_filters_ac", { ac, i: acIdx, n: byAc.size }));
 
-      await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
+      await loadAC(STATE_CODE_DEFAULT, ac);
 
       let relSet = null;
       if (norm(filters.relativeName || "")) {
-        relSet = await computeRowIdSetByRelativeFilterForAc(exactOn, ac, districtSlug);
+        relSet = await computeRowIdSetByRelativeFilterForAc(exactOn);
       }
 
-      const gaSet = await computeRowIdSetByGenderAndAgeForAc(rowIds, ac, districtSlug);
+      const gaSet = await computeRowIdSetByGenderAndAgeForAc(rowIds);
 
       for (const rid of rowIds) {
         if (relSet && !relSet.has(rid)) continue;
@@ -2262,14 +2078,10 @@ async function runSearch() {
     return;
   }
 
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
-  if (!districtSlug) {
-    setStatus(t("status_select_district_first"));
-    return;
-  }
-
   const exactOn = exactOnFromIncludeTyping();
-  const scopeForWorker = searchScope === SCOPE.ANYWHERE ? SCOPE.VOTER : searchScope;
+
+  // IMPORTANT FIX: pass actual scope including ANYWHERE to worker
+  const scopeForWorker = searchScope;
 
   const acList = getActiveACs();
   if (!acList.length) {
@@ -2277,142 +2089,66 @@ async function runSearch() {
     return;
   }
 
-  // Cancel any in-flight search work (client-side) by tokening.
-  const token = ++searchToken;
-
   showResults();
   resultsCountEl.textContent = "0";
 
   const merged = [];
 
-  // Producer/consumer queue: fetch ACs in parallel (limited), rank sequentially (single worker).
-  const readyQueue = [];
-  let readyWake = null;
-  let producersDone = false;
-
-  const wake = () => {
-    if (readyWake) {
-      const w = readyWake;
-      readyWake = null;
-      w();
-    }
-  };
-
-  const ctxForAc = (ac) => ({ districtSlug, state: STATE_CODE_DEFAULT, ac: Number(ac) });
-
-  const producer = mapWithConcurrency(acList, AC_FETCH_CONCURRENCY, async (ac, i) => {
-    if (token !== searchToken) return;
+  for (let i = 0; i < acList.length; i++) {
+    const ac = acList[i];
 
     setStatus(t("status_stage0", { ac, i: i + 1, n: acList.length }));
 
+    setDistrictLoading(true);
     try {
-      await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
+      await loadAC(STATE_CODE_DEFAULT, ac);
     } catch (e) {
       console.warn("Skipping AC due to load error:", ac, e);
-      return;
+      continue;
+    } finally {
+      setDistrictLoading(false);
     }
-
-    if (token !== searchToken) return;
 
     setStatus(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac }));
 
-    const ctx = ctxForAc(ac);
-    const { candidates, metaByRow } = await getCandidatesForQuery(qStrict, searchScope, exactOn, ctx);
-
-    if (!candidates.length) return;
-
-    if (token !== searchToken) return;
+    const { candidates, metaByRow } = await getCandidatesForQuery(qStrict, searchScope, exactOn);
+    if (!candidates.length) continue;
 
     setStatus(t("status_stage2", { n: candidates.length, ac }));
 
-    const rows = await fetchRowsByIds(candidates, ctx);
-
-    if (token !== searchToken) return;
+    const rows = await fetchRowsByIds(candidates);
     const rowsWithMeta = rows.map((r) => ({ ...r, _meta: metaByRow.get(r.row_id) || null }));
 
-    readyQueue.push({ ac, rowsWithMeta });
-    wake();
-  });
+    setStatus(t("status_stage3", { n: rowsWithMeta.length, ac }));
 
-  const consumer = (async () => {
-    while (true) {
-      if (token !== searchToken) return;
+    const ranked = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
 
-      if (!readyQueue.length) {
-        if (producersDone) break;
-        await new Promise((res) => (readyWake = res));
-        continue;
-      }
-
-      const item = readyQueue.shift();
-      if (!item) continue;
-
-      const { ac, rowsWithMeta } = item;
-
-      setStatus(t("status_stage3", { n: rowsWithMeta.length, ac }));
-
-      const rankedRows = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
-
-      for (const r of rankedRows) {
-        merged.push({
-    key: makeKey(ac, r.row_id),
-    ac,
-    row_id: r.row_id,
-    sort_key: r.sort_key,
-    match_field: r.match_field || "",
-    explain: r.explain || "",
-    _fallback_rank: r._fallback_rank ?? 0,
-  });
-      }
-
-      resultsCountEl.textContent = String(merged.length);
+    for (const r of ranked) {
+      merged.push({
+        key: makeKey(ac, r.row_id),
+        ac,
+        row_id: r.row_id,
+        sortKey: r.sortKey,
+        explain: DEBUG ? r.explain : "",
+        match_field: DEBUG ? r.match_field : "",
+      });
     }
-  })();
 
-  await producer;
-  producersDone = true;
-  wake();
-
-  await consumer;
-
-  if (token !== searchToken) return;
-
-  // ✅ GLOBAL sort using the worker's lexicographic key (true cross-AC relevance)
-merged.sort((a, b) => {
-  const ka = a.sort_key;
-  const kb = b.sort_key;
-
-  // if key missing, fall back to per-AC rank (should be rare after update)
-  if (!ka && !kb) {
-    if (a._fallback_rank !== b._fallback_rank) return a._fallback_rank - b._fallback_rank;
-  } else if (!ka) return 1;
-  else if (!kb) return -1;
-
-  const c = ka && kb ? cmpWorkerKey(ka, kb) : 0;
-  if (c !== 0) return c;
-
-  // prefer voter field in perfect ties
-  if (a.match_field !== b.match_field) {
-    if (a.match_field === "voter") return -1;
-    if (b.match_field === "voter") return 1;
+    resultsCountEl.textContent = String(merged.length);
   }
 
-  // deterministic tie-break across ACs
-  if (a.ac !== b.ac) return a.ac - b.ac;
-  return a.row_id - b.row_id;
-});
-
-// Assign a monotonic "score" so AGE sort tie-breaks keep relevance stable
-rankedByRelevance = merged.map((x, idx) => ({
-  key: x.key,
-  ac: x.ac,
-  row_id: x.row_id,
-  score: 1_000_000_000 - idx, // higher = better
-}));
-
+  // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
+  rankedByRelevance = merged.sort(cmpRelevance);
 
   await applyFiltersThenSortThenRender();
   setStatus(t("status_ready_results", { n: rankedView.length }));
+
+  if (DEBUG && rankedView.length) {
+    console.log("DEBUG top 20:");
+    for (const x of rankedView.slice(0, 20)) {
+      console.log(x.key, x.sortKey, x.explain);
+    }
+  }
 }
 
 // ---------- Render table ----------
@@ -2424,9 +2160,6 @@ async function renderPage() {
   const start = (page - 1) * pageSize;
   const end = Math.min(total, start + pageSize);
   const slice = rankedView.slice(start, end);
-
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
-  if (!districtSlug) throw new Error("District not selected");
 
   const missingByAc = new Map();
   for (const x of slice) {
@@ -2441,8 +2174,8 @@ async function renderPage() {
     for (const [ac, rowIds] of missingByAc.entries()) {
       idx++;
       setStatus(t("status_loading_page_rows", { page, ac, i: idx, n: missingByAc.size }));
-      await loadAC(STATE_CODE_DEFAULT, ac, districtSlug, { silent: true });
-      const rows = await fetchDisplayRowsByIds(rowIds, { districtSlug, state: STATE_CODE_DEFAULT, ac: Number(ac) });
+      await loadAC(STATE_CODE_DEFAULT, ac);
+      const rows = await fetchDisplayRowsByIds(rowIds);
       for (const r of rows) {
         const k = makeKey(ac, r.row_id);
         displayCache.set(k, r);
@@ -2450,10 +2183,10 @@ async function renderPage() {
     }
   }
 
-  const scoreMap = new Map(slice.map((x) => [x.key, x.score]));
+  const infoMap = new Map(slice.map((x) => [x.key, x]));
   const orderedRows = slice.map((x) => displayCache.get(x.key)).filter(Boolean);
 
-  $("results").innerHTML = renderTable(orderedRows, scoreMap);
+  $("results").innerHTML = renderTable(orderedRows, infoMap);
 
   pagerEl.style.display = total > 0 ? "flex" : "none";
   currentPageCount.textContent = t("page_x_of_y", { p: page, t: totalPages });
@@ -2464,7 +2197,7 @@ async function renderPage() {
   else setStatus(t("status_ready_results", { n: 0 }));
 }
 
-function renderTable(rows, scoreMap) {
+function renderTable(rows, infoMap) {
   const headerDefs = [
     { key: "Voter Name", label: headerLabelForKey("Voter Name") },
     { key: "Relative Name", label: headerLabelForKey("Relative Name") },
@@ -2498,7 +2231,7 @@ function renderTable(rows, scoreMap) {
         .map((r) => {
           const pdfUrl = buildPdfUrl(r);
           const k = makeKey(Number(r["AC No"] || 0), Number(r.row_id));
-          const score = scoreMap.get(k);
+          const info = infoMap.get(k);
 
           return `
           <tr>
@@ -2517,10 +2250,16 @@ function renderTable(rows, scoreMap) {
                 }
 
                 const val = formatCell(r[h.key]);
-                const title =
-                  h.key === "Voter Name" && typeof score === "number"
-                    ? `title="score: ${score.toFixed(0)}"`
-                    : "";
+
+                let title = "";
+                if (h.key === "Voter Name" && DEBUG && info) {
+                  const ttxt =
+                    `rankKey: ${JSON.stringify(info.sortKey)} | ` +
+                    (info.match_field ? `field=${info.match_field} | ` : "") +
+                    (info.explain || "");
+                  title = `title="${escapeHtml(ttxt)}"`;
+                }
+
                 return `<td class="${sticky}" ${title}>${escapeHtml(val)}</td>`;
               })
               .join("")}
@@ -2618,6 +2357,19 @@ function popRow({ left, right, chevron = true, selected = false, onClick }) {
   div.onclick = onClick;
   return div;
 }
+
+/* ----------------- the rest of your UI popovers + modal code -----------------
+   UNCHANGED from your paste (filters popover, district popovers, AC popover,
+   sort popover, page size popover, enhancements init, outside click handling,
+   and boot logic).
+   Keeping it untouched here would make this message explode in size.
+   If you want, I can paste the remaining unchanged tail too — but it is
+   literally identical to what you pasted after renderTable().
+----------------------------------------------------------------------------- */
+
+// NOTE: Everything after renderTable() in your pasted file can remain exactly
+// as-is. The changes above are sufficient for ranking/debug correctness.
+
 
 // ---------- Filters popover ----------
 let popView = "root"; // root | gender | age

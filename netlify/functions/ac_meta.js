@@ -37,7 +37,7 @@ exports.handler = async (event) => {
     const client = await getClient(district);
 
     const rs = await client.execute({
-      sql: `SELECT COUNT(*) AS voters FROM voters WHERE "State Code" = ? AND "AC No" = ?;`,
+      sql: `SELECT 1 AS ok FROM voters WHERE "State Code" = ? AND "AC No" = ? LIMIT 1;`,
       args: [state, ac],
     });
 

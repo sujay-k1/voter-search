@@ -23,3 +23,6 @@ district_to_group.json
 
 # (if present)
 duckdb-wasm/
+
+# Local Netlify folder
+.netlify
