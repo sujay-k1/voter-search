@@ -272,8 +272,8 @@ function resolveAccount(districtIdOrSlug) {
   const slug = slugifyDistrictId(districtIdOrSlug);
   if (!slug) throw new Error("Missing district");
 
-  if (DISTRICTS_A.has(slug)) return { slug, account: "A", user: "sujay-k1", token: process.env.TURSO_TOKEN_A };
-  if (DISTRICTS_B.has(slug)) return { slug, account: "B", user: "sujay-k2", token: process.env.TURSO_TOKEN_B };
+  if (DISTRICTS_A.has(slug)) return { slug, account: "A", user: "sujay-k3", token: process.env.TURSO_TOKEN_A };
+  if (DISTRICTS_B.has(slug)) return { slug, account: "B", user: "sujay-k3", token: process.env.TURSO_TOKEN_B };
   if (DISTRICTS_C.has(slug)) return { slug, account: "C", user: "sujay-k3", token: process.env.TURSO_TOKEN_C };
 
   throw new Error(`Unknown district slug: ${slug}`);
