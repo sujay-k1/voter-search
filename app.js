@@ -79,7 +79,7 @@ const SCORE_BATCH = 2000;
 // ---------------- Performance tuning (Turso backend) ----------------
 // AC fetch can be parallelized safely. Worker ranking remains sequential (single worker).
 // If you see 502s, reduce these numbers.
-const AC_FETCH_CONCURRENCY = 3;   // parallel AC pipelines (candidate+row fetch)
+const AC_FETCH_CONCURRENCY = 4;   // parallel AC pipelines (candidate+row fetch)
 const ROW_FETCH_CONCURRENCY = 2;  // parallel row-chunk fetches per AC
 
 // Simple concurrency helper (promise pool)
