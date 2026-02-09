@@ -1848,6 +1848,20 @@ async function fetchRowsByIds(rowIds, ctx) {
 }
 
 // ---------- Worker ----------
+
+function cmpWorkerKey(a, b) {
+  const aa = Array.isArray(a) ? a : [];
+  const bb = Array.isArray(b) ? b : [];
+  const n = Math.max(aa.length, bb.length);
+  for (let i = 0; i < n; i++) {
+    const av = aa[i] ?? 0;
+    const bv = bb[i] ?? 0;
+    if (av !== bv) return av < bv ? -1 : 1;
+  }
+  return 0;
+}
+
+
 let worker;
 let pendingResolve = null;
 let pendingReject = null;
@@ -1870,18 +1884,24 @@ function initWorker() {
     }
 
     if (msg.type === "done") {
-      const ranked = (msg.ranked || []).map((x, i) => ({
-        row_id: x.row_id,
-        score: typeof x.score === "number" ? x.score : 1000000 - i,
-      }));
-      if (pendingResolve) {
-        const r = pendingResolve;
-        pendingResolve = null;
-        pendingReject = null;
-        r(ranked);
-      }
-      return;
-    }
+  const ranked = (msg.ranked || []).map((x, i) => ({
+    row_id: Number(x.row_id),
+    sort_key: Array.isArray(x.key) ? x.key : null,
+    match_field: String(x.match_field || ""),
+    explain: x.explain || "",
+    // fallback rank only if key missing (should not happen after worker.js update)
+    _fallback_rank: i,
+  }));
+
+  if (pendingResolve) {
+    const r = pendingResolve;
+    pendingResolve = null;
+    pendingReject = null;
+    r(ranked);
+  }
+  return;
+}
+
 
     if (msg.type === "error") {
       setStatus(`Worker error: ${msg.message}`);
@@ -2334,7 +2354,15 @@ async function runSearch() {
       const rankedRows = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
 
       for (const r of rankedRows) {
-        merged.push({ key: makeKey(ac, r.row_id), ac, row_id: r.row_id, score: r.score });
+        merged.push({
+    key: makeKey(ac, r.row_id),
+    ac,
+    row_id: r.row_id,
+    sort_key: r.sort_key,
+    match_field: r.match_field || "",
+    explain: r.explain || "",
+    _fallback_rank: r._fallback_rank ?? 0,
+  });
       }
 
       resultsCountEl.textContent = String(merged.length);
@@ -2349,11 +2377,39 @@ async function runSearch() {
 
   if (token !== searchToken) return;
 
-  rankedByRelevance = merged.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (a.ac !== b.ac) return a.ac - b.ac;
-    return a.row_id - b.row_id;
-  });
+  // ✅ GLOBAL sort using the worker's lexicographic key (true cross-AC relevance)
+merged.sort((a, b) => {
+  const ka = a.sort_key;
+  const kb = b.sort_key;
+
+  // if key missing, fall back to per-AC rank (should be rare after update)
+  if (!ka && !kb) {
+    if (a._fallback_rank !== b._fallback_rank) return a._fallback_rank - b._fallback_rank;
+  } else if (!ka) return 1;
+  else if (!kb) return -1;
+
+  const c = ka && kb ? cmpWorkerKey(ka, kb) : 0;
+  if (c !== 0) return c;
+
+  // prefer voter field in perfect ties
+  if (a.match_field !== b.match_field) {
+    if (a.match_field === "voter") return -1;
+    if (b.match_field === "voter") return 1;
+  }
+
+  // deterministic tie-break across ACs
+  if (a.ac !== b.ac) return a.ac - b.ac;
+  return a.row_id - b.row_id;
+});
+
+// Assign a monotonic "score" so AGE sort tie-breaks keep relevance stable
+rankedByRelevance = merged.map((x, idx) => ({
+  key: x.key,
+  ac: x.ac,
+  row_id: x.row_id,
+  score: 1_000_000_000 - idx, // higher = better
+}));
+
 
   await applyFiltersThenSortThenRender();
   setStatus(t("status_ready_results", { n: rankedView.length }));
