@@ -370,7 +370,7 @@ function compareWordPrefixFallback(qWord, cWord, allowConsonantSubs) {
   const K = qLen;
   const maxSubs = (K === 2) ? PREFIX_K2_MAX_SUBS : PREFIX_K3_MAX_SUBS;
 
-  if (cLen < qLen) return { ok: false };
+  if (cLen < qLen + 8) return { ok: false };
   const extraSuffix = cLen - qLen;
   if (extraSuffix > PREFIX_FALLBACK_MAX_EXTRA_SUFFIX) return { ok: false };
 
@@ -464,7 +464,7 @@ function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null 
   const qLen = qBase.length;
   const cLen = cBase.length;
 
-  if (cLen < qLen) return { ok: false };
+  if (cLen < qLen + 8) return { ok: false };
 
   const additions = cLen - qLen;
   if (addCap != null && additions > addCap) return { ok: false };
