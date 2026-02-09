@@ -8,7 +8,7 @@
  * District -> account mapping is hard-coded (lossless to your stated distribution).
  */
 
-/**
+
 const DISTRICTS_A = new Set([
   "chatra","hazaribagh","deoghar","jamtara","dumka","kodarma","pakur","ramgarh","giridih","sahebganj","godda"
 ]);
@@ -199,7 +199,7 @@ module.exports = {
   decodeRowIds,
 };
 
-*/
+
 
 /**
  * netlify/functions/_turso.js
@@ -512,6 +512,8 @@ module.exports = {
  * District -> account mapping is hard-coded (lossless to your stated distribution).
  */
 
+/**
+
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -781,3 +783,5 @@ module.exports = {
   asString,
   decodeRowIds,
 };
+
+*/
