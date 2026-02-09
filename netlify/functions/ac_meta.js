@@ -40,14 +40,12 @@ exports.handler = async (event) => {
 
     // ✅ Fast "ping": does NOT scan/count the entire AC
     const rs = await client.execute({
-<<<<<<< HEAD
+
       sql: `SELECT 1 AS ok
             FROM voters
             WHERE "State Code" = ? AND "AC No" = ?
             LIMIT 1;`,
-=======
-      sql: `SELECT 1 AS ok FROM voters WHERE "State Code" = ? AND "AC No" = ? LIMIT 1;`,
->>>>>>> 548c7bd660bf451aa0b4cb55a856d7c31a274f70
+
       args: [state, ac],
     });
 
