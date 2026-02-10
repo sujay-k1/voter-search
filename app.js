@@ -158,6 +158,90 @@ let sortMode = SORT.RELEVANCE;
 
 // District popover search
 let districtQuery = "";
+function getDistrictById(id) {
+  if (!id) return null;
+  return (districtManifest?.districts || []).find((x) => x.id === id) || null;
+}
+
+function getActiveLang() {
+  try {
+    return i18n?.getLang?.() || LANG.HI;
+  } catch {
+    return LANG.HI;
+  }
+}
+
+function getDistrictLabelForLang(d, lang) {
+  if (!d) return "";
+  const base = String(d.label ?? d.id ?? "").trim();
+
+  const labels = d && typeof d.labels === "object" && d.labels ? d.labels : null;
+  if (!lang) lang = getActiveLang();
+
+  if (labels) {
+    if (lang === LANG.EN) return String(labels.en ?? labels.english ?? base).trim() || base;
+    if (lang === LANG.HINGLISH) return String(labels.hinglish ?? labels.en ?? base).trim() || base;
+    return String(labels.hi ?? labels.hindi ?? base).trim() || base;
+  }
+
+  // legacy per-field labels (optional)
+  if (lang === LANG.EN) return String(d.label_en ?? d.label ?? d.name ?? d.id ?? "").trim() || base;
+  if (lang === LANG.HINGLISH)
+    return String(d.label_hinglish ?? d.label_en ?? d.label ?? d.name ?? d.id ?? "").trim() || base;
+  return String(d.label_hi ?? d.label_hindi ?? d.label ?? d.name ?? d.id ?? "").trim() || base;
+}
+
+function getDistrictLabelCurrent() {
+  const d = getDistrictById(currentDistrictId);
+  if (!d) return "";
+  return getDistrictLabelForLang(d, getActiveLang());
+}
+
+function getDistrictSearchStrings(d) {
+  const out = [];
+  const seen = new Set();
+  const push = (x) => {
+    const s = String(x ?? "").trim();
+    if (!s) return;
+    const k = s.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(s);
+  };
+
+  push(d?.id);
+  push(d?.label);
+  push(d?.name);
+  push(d?.label_en);
+  push(d?.label_hinglish);
+  push(d?.label_hi);
+  push(d?.label_hindi);
+
+  const labels = d && typeof d.labels === "object" && d.labels ? d.labels : {};
+  push(labels.en);
+  push(labels.hinglish);
+  push(labels.hi);
+  push(labels.hindi);
+
+  return out;
+}
+
+function normDistrictSearchStr(s) {
+  return norm(String(s || "")).toLowerCase();
+}
+
+function districtMatchesQuery(d, qNorm, qNoSpace) {
+  if (!qNorm) return true;
+  const cands = getDistrictSearchStrings(d);
+  for (const c of cands) {
+    const cn = normDistrictSearchStr(c);
+    if (!cn) continue;
+    if (cn.includes(qNorm)) return true;
+    if (qNoSpace && cn.replace(/\s+/g, "").includes(qNoSpace)) return true;
+  }
+  return false;
+}
+
 
 /* ----------------------------- rank key compare ----------------------------- */
 function cmpRankKey(a, b) {
@@ -759,6 +843,7 @@ function attachNameEnhancements({
 
   return {
     close: () => closeAll(),
+    closePopover: () => closeTranslitPopover(),
     syncDisabled,
     getPopover: () => popEl,
     getWrap: () => wrapEl,
@@ -789,6 +874,13 @@ function applyTranslationsToDOM() {
   renderSortPopover();
   renderPageSizePopover();
   renderFiltersPopoverRoot();
+
+  try {
+    if (districtPopover && districtPopover.style.display !== "none") updateDistrictPopoverList(districtPopover);
+  } catch {}
+  try {
+    if (districtPopoverLanding && districtPopoverLanding.style.display !== "none") updateDistrictPopoverList(districtPopoverLanding);
+  } catch {}
 
   if (pageSizeBtn) {
     const label = document.querySelector("[data-i18n='page_size_label']");
@@ -852,6 +944,8 @@ function headerLabelForKey(k) {
       return t("h_page_no");
     case "Part No":
       return t("h_part_no");
+    case "AC No":
+      return t("h_ac_no");
     case "ID":
       return t("h_id");
     default:
@@ -915,6 +1009,12 @@ const pageInfo = $("pageInfo");
 
 const clearBtn = $("clearBtn");
 
+// Results table scroll container (for mobile-only compact header behavior)
+const tableRegion = document.querySelector("#resultsSection .tableRegion");
+const scrollTopFab = $("scrollTopFab");
+const resultsTopEl = resultsSection?.querySelector?.(".resultsTop") || null;
+const resultsBodyEl = resultsSection?.querySelector?.(".resultsBody") || null;
+
 // Page-size popover
 const pageSizeBtn = $("pageSizeBtn");
 const pageSizeText = $("pageSizeText");
@@ -941,13 +1041,108 @@ function setMeta(msg) {
 function showLanding() {
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
+  // Ensure results UI is restored when user returns.
+  resetMobileTableCompactUI();
 }
 function showResults() {
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
+  // Sync compact UI state (in case user navigates back to results).
+  if (tableRegion) setMobileTableCompact(tableRegion.scrollTop > 8);
 }
 function isResultsVisible() {
   return window.getComputedStyle(resultsSection).display !== "none";
+}
+
+// ------- Mobile-only: collapse header rows when the results table is scrolled -------
+function isNarrowMobileForTableCompact() {
+  return window.matchMedia("(max-width: 680px)").matches;
+}
+
+function applyMobileCompactResultsBodyHeight() {
+  if (!resultsTopEl || !resultsBodyEl) return;
+
+  // Only override height in compact state (so default layout remains unchanged).
+  const vh = window.visualViewport?.height || window.innerHeight;
+  const topH = resultsTopEl.getBoundingClientRect().height;
+
+  // Keep a small gutter so borders/shadows don't clip.
+  const h = Math.max(260, Math.round(vh - topH));
+  resultsBodyEl.style.height = `${h}px`;
+}
+
+function clearMobileCompactResultsBodyHeight() {
+  if (!resultsBodyEl) return;
+  resultsBodyEl.style.height = "";
+}
+
+function setMobileTableCompact(on) {
+  if (!isNarrowMobileForTableCompact() || !isResultsVisible()) {
+    resultsSection.classList.remove("mobileCompact");
+    clearMobileCompactResultsBodyHeight();
+    return;
+  }
+
+  resultsSection.classList.toggle("mobileCompact", !!on);
+
+  if (resultsSection.classList.contains("mobileCompact")) {
+    applyMobileCompactResultsBodyHeight();
+  } else {
+    clearMobileCompactResultsBodyHeight();
+  }
+}
+
+function resetMobileTableCompactUI() {
+  resultsSection.classList.remove("mobileCompact");
+  clearMobileCompactResultsBodyHeight();
+}
+
+function initMobileTableScrollCompactUI() {
+  if (!tableRegion) return;
+
+  let raf = null;
+
+  const syncFromScroll = () => {
+    // Only act when results are visible.
+    if (!isResultsVisible() || !isNarrowMobileForTableCompact()) {
+      resetMobileTableCompactUI();
+      return;
+    }
+    setMobileTableCompact(tableRegion.scrollTop > 8);
+  };
+
+  tableRegion.addEventListener(
+    "scroll",
+    () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        syncFromScroll();
+      });
+    },
+    { passive: true }
+  );
+
+  // Recompute height on viewport changes while compact.
+  window.addEventListener("resize", () => {
+    if (!isResultsVisible() || !isNarrowMobileForTableCompact()) {
+      resetMobileTableCompactUI();
+      return;
+    }
+    if (resultsSection.classList.contains("mobileCompact")) applyMobileCompactResultsBodyHeight();
+  });
+  window.visualViewport?.addEventListener?.("resize", () => {
+    if (!isResultsVisible() || !isNarrowMobileForTableCompact()) return;
+    if (resultsSection.classList.contains("mobileCompact")) applyMobileCompactResultsBodyHeight();
+  });
+
+  // Scroll-to-top FAB
+  scrollTopFab?.addEventListener("click", () => {
+    tableRegion.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  // Ensure correct state when coming back to results.
+  syncFromScroll();
 }
 
 function getActiveQueryInput() {
@@ -1322,32 +1517,65 @@ const FALLBACK_DISTRICT_MAP = [
 ];
 
 function normalizeDistrictManifest(raw) {
-  if (!raw) return { districts: FALLBACK_DISTRICT_MAP };
+  const fallbackWithLabels = () => {
+    return {
+      districts: (FALLBACK_DISTRICT_MAP || []).map((d) => {
+        const base = String(d.label ?? d.id ?? "").trim() || "District";
+        return {
+          id: String(d.id ?? base).trim() || base,
+          label: base,
+          labels: { en: base, hi: base, hinglish: base },
+          acs: Array.isArray(d.acs) ? d.acs.slice().map(Number).filter(Number.isFinite) : [],
+        };
+      }),
+    };
+  };
+
+  if (!raw) return fallbackWithLabels();
+
+  const normalizeOne = (d) => {
+    const id = String(d?.id ?? d?.label ?? d?.name ?? "").trim() || String(d?.name ?? d?.label ?? "District");
+    const label = String(d?.label ?? d?.name ?? d?.id ?? "District").trim() || "District";
+
+    const labelsObj = d && typeof d.labels === "object" && d.labels ? d.labels : {};
+    const en = String(labelsObj.en ?? d?.label_en ?? label ?? id).trim() || label || id;
+    const hi =
+      String(labelsObj.hi ?? labelsObj.hindi ?? d?.label_hi ?? d?.label_hindi ?? "").trim() || label || id;
+    const hinglish = String(labelsObj.hinglish ?? d?.label_hinglish ?? "").trim() || en || label || id;
+
+    const acs = Array.isArray(d?.acs) ? d.acs.map(Number).filter(Number.isFinite) : [];
+
+    return { id, label, labels: { en, hi, hinglish }, acs };
+  };
 
   if (Array.isArray(raw.districts)) {
     return {
-      districts: raw.districts
-        .map((d) => ({
-          id: String(d.id ?? d.label ?? d.name ?? "").trim() || String(d.name ?? d.label ?? "District"),
-          label: String(d.label ?? d.name ?? d.id ?? "District"),
-          acs: Array.isArray(d.acs) ? d.acs.map(Number).filter(Number.isFinite) : [],
-        }))
-        .filter((d) => d.acs.length > 0),
+      districts: raw.districts.map(normalizeOne).filter((d) => d.acs.length > 0),
     };
   }
 
   if (typeof raw === "object") {
     const districts = [];
+
+    // shape A: raw is { districts: [...] } already handled above
+    // shape B: raw is a mapping { "Ranchi": [1,2,...], ... }
     for (const [k, v] of Object.entries(raw)) {
       if (!Array.isArray(v)) continue;
       const acs = v.map(Number).filter(Number.isFinite);
       if (!acs.length) continue;
-      districts.push({ id: k, label: k, acs });
+      const label = String(k || "District").trim() || "District";
+      districts.push({
+        id: label,
+        label,
+        labels: { en: label, hi: label, hinglish: label },
+        acs,
+      });
     }
+
     if (districts.length) return { districts };
   }
 
-  return { districts: FALLBACK_DISTRICT_MAP };
+  return fallbackWithLabels();
 }
 
 async function loadDistrictManifest(stateCode) {
@@ -1370,14 +1598,14 @@ function populateDistrictHiddenSelect() {
   districtSelHidden.innerHTML =
     `<option value="">${escapeHtml(t("select_district"))}</option>` +
     (districtManifest?.districts || [])
-      .map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.label)}</option>`)
+      .map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(getDistrictLabelForLang(d, getActiveLang()) || d.label)}</option>`)
       .join("");
 }
 
 function updateDistrictUI() {
-  const label = currentDistrictLabel || t("select_district");
-  if (districtMirror) districtMirror.textContent = label;
-  if (districtMirrorLanding) districtMirrorLanding.textContent = label;
+  const label = currentDistrictId ? getDistrictLabelCurrent() || currentDistrictLabel : t("select_district");
+  if (districtMirror) districtMirror.textContent = label || t("select_district");
+  if (districtMirrorLanding) districtMirrorLanding.textContent = label || t("select_district");
 }
 
 function updateSelectedAcText() {
@@ -1438,6 +1666,22 @@ async function preloadDistrictACs(acs, districtLabel) {
       setDistrictLoading(false);
       setSearchEnabled(true);
       syncSearchButtonState();
+
+      // After district metadata is loaded and inputs are re-enabled, focus the active query box
+      try {
+        const el = getActiveQueryInput();
+        if (el && !el.disabled) {
+          setTimeout(() => {
+            try {
+              el.focus({ preventScroll: true });
+            } catch {
+              try {
+                el.focus();
+              } catch {}
+            }
+          }, 0);
+        }
+      } catch {}
     }
   }
 }
@@ -1447,7 +1691,7 @@ function setDistrictById(id) {
   if (!d) return;
 
   currentDistrictId = d.id;
-  currentDistrictLabel = d.label;
+  currentDistrictLabel = getDistrictLabelForLang(d, getActiveLang());
   districtACsAll = d.acs.slice().map(Number).filter(Number.isFinite);
   selectedACs.clear(); // default = all
 
@@ -2208,6 +2452,7 @@ function renderTable(rows, infoMap) {
     { key: "Serial No", label: headerLabelForKey("Serial No") },
     { key: "Page No", label: headerLabelForKey("Page No") },
     { key: "Part No", label: headerLabelForKey("Part No") },
+    { key: "AC No", label: headerLabelForKey("AC No") },
     { key: "ID", label: headerLabelForKey("ID") },
     { key: "__PDF__", label: t("h_pdf") },
   ];
@@ -2519,8 +2764,22 @@ function renderFiltersPopoverAge() {
 
 // ---------- Modal helpers ----------
 let modalState = null;
+let modalEnhancers = [];
+let modalEnhancerOutsideHandler = null;
 
 function openModal({ title, subtitle, fields, onDone }) {
+  // cleanup any previous modal enhancers
+  try {
+    (modalEnhancers || []).forEach((e) => e?.close?.());
+  } catch {}
+  modalEnhancers = [];
+  if (modalEnhancerOutsideHandler) {
+    try {
+      document.removeEventListener("mousedown", modalEnhancerOutsideHandler, true);
+    } catch {}
+    modalEnhancerOutsideHandler = null;
+  }
+
   modalState = { onDone, fields };
 
   modalTitle.textContent = title;
@@ -2540,6 +2799,73 @@ function openModal({ title, subtitle, fields, onDone }) {
     const wrap = document.createElement("div");
     wrap.className = "field";
 
+    if (f.enhanceName) {
+      const enhWrap = document.createElement("div");
+      enhWrap.className = "enhancedInputWrap";
+      enhWrap.style.flex = "1 1 auto";
+      enhWrap.style.minWidth = "0";
+
+      const chip = document.createElement("div");
+      chip.className = "listeningChip";
+      chip.textContent = t("mic_listening");
+
+      const input = document.createElement("input");
+      input.type = f.inputType || "text";
+      input.placeholder = f.placeholder || "";
+      input.value = f.value || "";
+      input.inputMode = f.inputMode || "text";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.className = "qInput";
+
+      const mic = document.createElement("button");
+      mic.type = "button";
+      mic.className = "micBtn";
+      mic.setAttribute("aria-label", "Voice input");
+      const micIcon = document.createElement("span");
+      micIcon.className = "micIcon";
+      mic.appendChild(micIcon);
+
+      const pop = document.createElement("div");
+      pop.className = "popover";
+      pop.setAttribute("aria-hidden", "true");
+      pop.style.display = "none";
+
+      enhWrap.appendChild(chip);
+      enhWrap.appendChild(input);
+      enhWrap.appendChild(mic);
+      enhWrap.appendChild(pop);
+
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "xBtn";
+      x.textContent = "×";
+      x.onclick = () => {
+        input.value = "";
+        input.focus();
+      };
+
+      wrap.appendChild(enhWrap);
+      wrap.appendChild(x);
+      modalFields.appendChild(wrap);
+
+      f._el = input;
+
+      try {
+        const enh = attachNameEnhancements({
+          inputEl: input,
+          wrapEl: enhWrap,
+          micBtnEl: mic,
+          popEl: pop,
+          onCommit: () => {},
+        });
+        modalEnhancers.push(enh);
+      } catch {}
+
+      continue;
+    }
+
+    // default: simple input (existing behavior)
     const input = document.createElement("input");
     input.type = f.inputType || "text";
     input.placeholder = f.placeholder || "";
@@ -2564,6 +2890,29 @@ function openModal({ title, subtitle, fields, onDone }) {
     f._el = input;
   }
 
+  // close transliteration popovers in modal on outside click
+  modalEnhancerOutsideHandler = (e) => {
+    const target = e.target;
+    // ignore clicks inside the modal itself
+    if (modalOverlay && modalOverlay.contains(target)) {
+      // if click is inside any enhanced field, do nothing
+      for (const enh of modalEnhancers) {
+        const w = enh?.getWrap?.();
+        const p = enh?.getPopover?.();
+        const m = enh?.getMic?.();
+        if ((w && w.contains(target)) || (p && p.contains(target)) || (m && m.contains(target))) return;
+      }
+      // otherwise close popovers
+      for (const enh of modalEnhancers) enh?.closePopover?.();
+      return;
+    }
+    // click outside modal: close popovers too
+    for (const enh of modalEnhancers) enh?.closePopover?.();
+  };
+  try {
+    document.addEventListener("mousedown", modalEnhancerOutsideHandler, true);
+  } catch {}
+
   modalOverlay.style.display = "flex";
   modalOverlay.setAttribute("aria-hidden", "false");
 
@@ -2574,6 +2923,19 @@ function openModal({ title, subtitle, fields, onDone }) {
 function closeModal() {
   modalOverlay.style.display = "none";
   modalOverlay.setAttribute("aria-hidden", "true");
+
+  if (modalEnhancerOutsideHandler) {
+    try {
+      document.removeEventListener("mousedown", modalEnhancerOutsideHandler, true);
+    } catch {}
+    modalEnhancerOutsideHandler = null;
+  }
+
+  try {
+    (modalEnhancers || []).forEach((e) => e?.close?.());
+  } catch {}
+  modalEnhancers = [];
+
   modalState = null;
 }
 
@@ -2598,7 +2960,7 @@ function openRelativeNameModal() {
   openModal({
     title: t("modal_rel_title"),
     subtitle: t("modal_rel_sub"),
-    fields: [{ inputType: "text", placeholder: t("modal_enter_name"), value: filters.relativeName || "" }],
+    fields: [{ inputType: "text", inputMode: "text", placeholder: t("modal_enter_name"), value: filters.relativeName || "", enhanceName: true }],
     onDone: ([v]) => {
       filters.relativeName = norm(v || "");
       renderFiltersPopoverRoot();
@@ -2725,16 +3087,15 @@ function updateDistrictPopoverList(popEl) {
 
   listEl.innerHTML = "";
 
-  const q = (districtQuery || "").trim().toLowerCase();
-  const list = (districtManifest?.districts || []).filter((d) => {
-    if (!q) return true;
-    return String(d.label || d.id || "").toLowerCase().includes(q);
-  });
+  const qRaw = (districtQuery || "").trim();
+  const qNorm = normDistrictSearchStr(qRaw);
+  const qNoSpace = qNorm.replace(/\s+/g, "");
+  const list = (districtManifest?.districts || []).filter((d) => districtMatchesQuery(d, qNorm, qNoSpace));
 
   for (const d of list) {
     const isSel = d.id === currentDistrictId;
     const row = popRow({
-      left: d.label,
+      left: getDistrictLabelForLang(d, getActiveLang()) || d.label,
       right: "",
       chevron: false,
       selected: isSel,
@@ -3111,6 +3472,9 @@ renderPageSizePopover();
 
 // init transliteration + voice enhancers (NEW)
 initNameEnhancements();
+
+// Mobile-only: auto-collapse header rows when table is scrolled
+initMobileTableScrollCompactUI();
 
 // update page size options if user resizes across breakpoint
 let resizeTimer = null;

@@ -23,6 +23,7 @@ export const I18N = {
     btn_search: "खोजें",
     include_typing: "परिणाम में टाइपिंग की गलतियाँ भी शामिल करें",
     tip_text: "टिप: अपना नाम या रिश्तेदार का नाम (पिता, पति, माता) लिखें",
+    mic_listening: "माइक चालू है, बोलें…",
 
     // footer
     need_help: "मदद चाहिए?",
@@ -96,6 +97,8 @@ export const I18N = {
     sort_row_age_up: "क्रम: उम्र ↑",
     sort_row_age_down: "क्रम: उम्र ↓",
 
+    Scroll_to_top: "ऊपर जाएँ",
+
     // status / meta
     status_not_loaded: "लोड नहीं हुआ।",
     status_select_district: "शुरू करने के लिए ज़िला चुनें।",
@@ -137,6 +140,7 @@ export const I18N = {
     h_serial_no: "सीरियल नं.",
     h_page_no: "पेज नं.",
     h_part_no: "भाग नं.",
+    h_ac_no: "निर्वाचन क्षेत्र",
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "PDF खोलें",
@@ -158,6 +162,7 @@ export const I18N = {
     btn_search: "Search",
     include_typing: "Typing mistakes bhi include karein",
     tip_text: "Tip: Apna naam ya relative ka naam (Father, husband, mother) type kar sakte hain",
+    mic_listening: "Mic on hai, boliye…",
 
     need_help: "Help ki zaroorat hai?",
     feedback: "Suggestion hai? Feedback dein!",
@@ -225,6 +230,8 @@ export const I18N = {
     sort_row_age_up: "Sort by: Age ↑",
     sort_row_age_down: "Sort by: Age ↓",
 
+    Scroll_to_top: "Scroll to top",
+
     status_not_loaded: "Not loaded.",
     status_select_district: "Start karne ke liye district select karein.",
     status_enter_query: "Query enter karein.",
@@ -264,6 +271,7 @@ export const I18N = {
     h_serial_no: "Serial No",
     h_page_no: "Page No",
     h_part_no: "Part No",
+    h_ac_no: "AC No",
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "Open PDF",
@@ -284,6 +292,7 @@ export const I18N = {
     btn_search: "Search",
     include_typing: "Include typing mistakes",
     tip_text: "Tip: You can type your name or your relative’s name (Father, husband, mother)",
+    mic_listening: "Listening...",
 
     need_help: "Need help?",
     feedback: "Have a suggestion? Leave feedback!",
@@ -351,6 +360,8 @@ export const I18N = {
     sort_row_age_up: "Sort by: Age ↑",
     sort_row_age_down: "Sort by: Age ↓",
 
+    Scroll_to_top: "Scroll to top",
+
     status_not_loaded: "Not loaded.",
     status_select_district: "Select District to start.",
     status_enter_query: "Enter a query.",
@@ -390,6 +401,7 @@ export const I18N = {
     h_serial_no: "Serial No",
     h_page_no: "Page No",
     h_part_no: "Part No",
+    h_ac_no: "AC No",
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "Open PDF",
