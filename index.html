@@ -639,7 +639,7 @@
     .popover{
       position: absolute;
       top: calc(100% + 8px);
-      left: 0;
+      right: 0;
       min-width: 320px;
       border-radius: 22px;
       background: rgba(245,240,250,.98);
@@ -820,7 +820,7 @@
     }
 
 @media (max-width: 680px){
-  .filtersRow{ flex-direction: column; gap: 12px;}
+  .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 400; overflow: visible;}
   .seg{justify-content: space-evenly;}
   .clearSearchBtn{position: absolute; right: 0px; z-index: 60; top: calc(-89.9dvh); width: 120px;}
   .resultsBody{z-index: 40; height: calc(100dvh - 339px); padding: 12px 12px 0px;}
@@ -835,7 +835,7 @@
   /* Mobile-only: collapse scope + filters on table scroll */
   #resultsSection .scopeWrap,
   #resultsSection .filtersRow{
-    overflow: hidden;
+   /* overflow: hidden; */
     max-height: 260px;
     opacity: 1;
     transform: translateY(0);

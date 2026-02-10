@@ -242,7 +242,6 @@ function districtMatchesQuery(d, qNorm, qNoSpace) {
   return false;
 }
 
-
 /* ----------------------------- rank key compare ----------------------------- */
 function cmpRankKey(a, b) {
   const aa = Array.isArray(a) ? a : [];
@@ -1067,7 +1066,7 @@ function applyMobileCompactResultsBodyHeight() {
   const topH = resultsTopEl.getBoundingClientRect().height;
 
   // Keep a small gutter so borders/shadows don't clip.
-  const h = Math.max(260, Math.round(vh - topH));
+  const h = Math.max(260, Math.round(vh - topH - 8));
   resultsBodyEl.style.height = `${h}px`;
 }
 
@@ -1628,46 +1627,33 @@ function updateSelectedAcText() {
 }
 
 // NEW: preload all ACs for selected district (as requested).
+// CHANGED: no longer blocks typing/search and no longer calls ac_meta/loadAC per-AC.
+// It now triggers warm() in background and immediately enables inputs.
 async function preloadDistrictACs(acs, districtLabel) {
   if (!acs || !acs.length) return;
 
   const token = ++districtPreloadToken;
 
-  setSearchEnabled(false);
+  // Do NOT block input anymore.
   setDistrictLoading(true);
-
   try {
-    setStatus(t("status_loading_district", { district: districtLabel, n: acs.length }));
+    // Immediately mark district as ready from UI standpoint.
+    setStatus(t("status_ready_district_loaded", { district: districtLabel, n: acs.length }));
     setMeta("");
 
-    for (let i = 0; i < acs.length; i++) {
-      if (token !== districtPreloadToken) return; // cancelled
-
-      const ac = acs[i];
-      setStatus(
-        t("status_loading_district_ac", {
-          district: districtLabel,
-          ac,
-          i: i + 1,
-          n: acs.length,
-        })
-      );
-      try {
-        await loadAC(STATE_CODE_DEFAULT, ac);
-      } catch (e) {
-        console.warn("Preload: skipping AC due to load error:", ac, e);
-      }
+    // Warm in background (best-effort). Do not await; do not block UI.
+    const districtSlug = slugifyDistrictId(currentDistrictId || "");
+    if (districtSlug) {
+      callFn("warm", { district: districtSlug, state: STATE_CODE_DEFAULT }).catch(() => {});
     }
-
-    if (token !== districtPreloadToken) return;
-    setStatus(t("status_ready_district_loaded", { district: districtLabel, n: acs.length }));
   } finally {
+    // Ensure UI is enabled immediately.
     if (token === districtPreloadToken) {
       setDistrictLoading(false);
       setSearchEnabled(true);
       syncSearchButtonState();
 
-      // After district metadata is loaded and inputs are re-enabled, focus the active query box
+      // After district selection, focus the active query box (same behavior as before).
       try {
         const el = getActiveQueryInput();
         if (el && !el.disabled) {
@@ -1712,6 +1698,7 @@ function setDistrictById(id) {
   closeSortPopover();
   closePageSizePopover();
 
+  // Keep the call as before, but it no longer blocks UI and no longer calls ac_meta.
   preloadDistrictACs(districtACsAll.slice(), currentDistrictLabel);
 
   syncSearchButtonState();
@@ -1734,45 +1721,14 @@ async function loadGenderDomain() {
 }
 
 // ---------- Load AC (views swap to that AC) ----------
+// CHANGED: decommissioned ac_meta. This is now local-only and never hits the backend.
 async function loadAC(stateCode, acNo) {
-  // Turso-backed: no local parquet loading; just verify DB connectivity and cache a tiny meta per AC.
   current.state = stateCode;
   current.ac = acNo;
-
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
-  if (!districtSlug) {
-    current.loaded = false;
-    throw new Error("District not selected");
-  }
-
-  const cacheKey = `${districtSlug}:${Number(acNo)}`;
-  if (!loadAC._metaCache) loadAC._metaCache = new Map();
-  const metaCache = loadAC._metaCache;
-
-  if (metaCache.has(cacheKey)) {
-    current.meta = metaCache.get(cacheKey);
-    current.loaded = true;
-    const voters = current.meta?.voters;
-    setMeta(
-      voters !== undefined ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}` : `Loaded AC${String(acNo).padStart(2, "0")}`
-    );
-    return;
-  }
-
-  const meta = await callFn("ac_meta", {
-    district: districtSlug,
-    state: stateCode,
-    ac: Number(acNo),
-  });
-
-  current.meta = meta || null;
+  current.meta = null;
   current.loaded = true;
-  metaCache.set(cacheKey, current.meta);
 
-  const voters = current.meta?.voters;
-  setMeta(
-    voters !== undefined ? `Loaded AC${String(acNo).padStart(2, "0")} • voters: ${voters}` : `Loaded AC${String(acNo).padStart(2, "0")}`
-  );
+  setMeta(`Loaded AC${String(acNo).padStart(2, "0")}`);
 }
 
 // ---------- Candidate generation ----------
@@ -2607,14 +2563,7 @@ function popRow({ left, right, chevron = true, selected = false, onClick }) {
    UNCHANGED from your paste (filters popover, district popovers, AC popover,
    sort popover, page size popover, enhancements init, outside click handling,
    and boot logic).
-   Keeping it untouched here would make this message explode in size.
-   If you want, I can paste the remaining unchanged tail too — but it is
-   literally identical to what you pasted after renderTable().
 ----------------------------------------------------------------------------- */
-
-// NOTE: Everything after renderTable() in your pasted file can remain exactly
-// as-is. The changes above are sufficient for ranking/debug correctness.
-
 
 // ---------- Filters popover ----------
 let popView = "root"; // root | gender | age
