@@ -1,986 +1,911 @@
 // worker.js (ES module)
 //
-// ✅ Keeps your existing behavior (phonetic/visual entity ladder + PF fallback + AO fallback)
-// ✅ NEW: returns `key[]` to main thread so global merge across ACs is correct
+// Message protocol (required by app.js):
+//   - Receive: {type:'start', query, exactOn, scope, total}
+//   - Receive: {type:'batch', rows:[...]}
+//   - Receive: {type:'finish'}
+//   - Send:    {type:'progress', done, total, phase:'scoring'} (optional)
+//   - Send:    {type:'done', ranked:[{row_id, key:number[], explain, match_field}]}
 //
-// 🔧 FIXES IN THIS VERSION:
-// 1) Entities for matching/alignment are STRUCTURAL entities: letters + multi-entities from your sets + independent vowels.
-//    Matras DO NOT count as entities for match/alignment (but can be a ranking penalty).
-// 2) Prevent the bug where (matra vs consonant) was treated as a “matra mismatch” and allowed garbage matches.
-// 3) 2-word TYPO_FULL bucket is now a tier-ladder with caps:
-//    - Top tiers allow only limited W2 and ONLY if M2=0.
-//    - Then progressively looser tiers.
-// 4) AO outside-sub caps updated to your finalized rule:
-//    qLen 1–3 => 0, 4–6 => 1, 7–10 => 2, 11+ => 3
+// EXACT MODE (exactOn === true):
+//   - match if query words are an ordered-subsequence of candidate words
+//   - each matched word must have identical STRUCTURAL entity sequence
+//   - only matra/marks can differ (matraDiff used for ranking)
 //
-// NOTE: We do NOT strip matras before segmentation. We segment first, then build STRUCTURAL slots and matra clusters.
+// TYPING-MISTAKES MODE (exactOn === false):
+//   - includes ALL exact-mode results with same ordering
+//   - additionally allows:
+//       * internal substitutions (within confusable sets; weighted by tier)
+//       * outside substitutions (non-set) with caps + protected-prefix constraint
+//       * empty substitutions (deletions) with separate quota (<= entities-2)
+//       * suffix insertions only (extra entities at end of a word), ranked at the bottom
+//   - For MULTIWORD QUERIES: protected-prefix rule applies ONLY to the FIRST word,
+//     as per your latest instruction: “Apply to all multiword queries”.
 
 /* =====================
-   Character classes
-===================== */
-const INDEP_VOWELS = new Set(["अ","आ","इ","ई","उ","ऊ","ए","ऐ","ओ","औ","ऋ","ॠ","ऌ","ॡ"]);
-const MATRAS = new Set(["ा","ि","ी","ु","ू","े","ै","ो","ौ","ृ","ॄ","ॢ","ॣ"]);
-
-// NOTE: these are stripped, but we do NOT count them as mismatches.
-const MARKS_AS_MATRA = new Set(["ँ","ं","ः","़","्"]);
-
-const TYPE = {
-  EXACT: 0,
-  PHONETIC: 1,
-  VISUAL_P0: 2,
-  VISUAL_P1: 3,
-  VISUAL_P2: 4,
-  OTHER: 9
-};
-
-// Caps from your rules (FULL word compare caps)
-const MAX_CONS_MISMATCH_PER_WORD = 4;
-const MAX_TOTAL_CONS_2WORD = 5;
-const MAX_TOTAL_CONS_3PLUS = 7;
-
-// Prefix fallback policy (older K=2/3 policy)
-const PREFIX_FALLBACK_MAX_EXTRA_SUFFIX = 2;
-const PREFIX_FALLBACK_GLOBAL_EXTRA_PER_WORD = 2;
-const PREFIX_K2_MAX_SUBS = 1;
-const PREFIX_K3_MAX_SUBS = 2;
-
-// NEW additions policy (low rank)
-const ADD_FALLBACK_FIRST_WORD_MAX_ADD_ENTITIES_IN_MULTI = 2;
-
-/* =====================
-   Sets (KEEP EXACTLY AS YOU PROVIDED)
+   Confusable sets (as provided)
    phonetic > all visual (P0/P1/P2)
 ===================== */
 const VISUAL_P0 = [
-  ["ए","प"],
-  ["क","फ"],
-  ["ख","रव","थ","य","रा","स","श"],
-  ["ग","रा","म"],
-  ["घ","ध","छ"],
-  ["ङ","ड","ह"],
-  ["च","ज","ज्ञ","ञ"],
-  ["झ","डा"],
-  ["ट","ढ","द","ठ"],
-  ["त","न"],
-  ["प","ष","य","भ","म","न","प्न"],
-  ["ब","व","ञ"],
-  ["र","१"],
-  ["श","रा","१।"],
-  ["त्र","ञ"],
-  ["त्त","त"],
-  ["स्न","स"],
+  ["ए", "प"],
+  ["क", "फ"],
+  ["ख", "रव", "थ", "य", "रा", "स", "श"],
+  ["ग", "रा", "म"],
+  ["घ", "ध", "छ"],
+  ["ङ", "ड", "ह"],
+  ["च", "ज", "ज्ञ", "ञ"],
+  ["झ", "डा"],
+  ["ट", "ढ", "द", "ठ"],
+  ["त", "न"],
+  ["प", "ष", "य", "भ", "म", "न", "प्न"],
+  ["ब", "व", "ञ"],
+  ["र", "१"],
+  ["श", "रा", "१।"],
+  ["त्र", "ञ"],
+  ["त्त", "त"],
+  ["स्न", "स"],
 ];
 
 const VISUAL_P1 = [
-  ["ण","ग"],
-  ["ह","हा","घ","छ"],
-  ["ड","ह","इ","झ"],
-  ["प","ए"],
-  ["स","रा","श"],
-  ["र","ल"],
+  ["ण", "ग"],
+  ["ह", "हा", "घ", "छ"],
+  ["ड", "ह", "इ", "झ"],
+  ["प", "ए"],
+  ["स", "रा", "श"],
+  ["र", "ल"],
 ];
 
 const VISUAL_P2 = [
-  ["प","फ","च"],
+  ["प", "फ", "च"],
 ];
 
 const PHONETIC = [
-  ["अ","आ"],
-  ["इ","ई"],
-  ["उ","ऊ"],
-  ["ए","ऐ"],
-  ["ओ","औ"],
-  ["ऋ","ॠ"],
-  ["ऌ","ॡ"],
+  ["अ", "आ"],
+  ["इ", "ई"],
+  ["उ", "ऊ"],
+  ["ए", "ऐ"],
+  ["ओ", "औ"],
+  ["ऋ", "ॠ"],
+  ["ऌ", "ॡ"],
 
-  ["क","ख"],
-  ["ग","घ","ह"],
-  ["च","छ"],
-  ["ज","झ"],
-  ["ट","ठ"],
-  ["ड","ढ","द","ध","त","थ"],
-  ["ण","न"],
-  ["प","फ"],
-  ["ब","भ","व"],
-  ["य","ज"],
-  ["स","श","ष"],
-  ["त्र","ट्र"],
-  ["ज्ञ","ज्या"],
-  ["र","ड़"],
+  ["क", "ख"],
+  ["ग", "घ", "ह"],
+  ["च", "छ"],
+  ["ज", "झ"],
+  ["ट", "ठ"],
+  ["ड", "ढ", "द", "ध", "त", "थ"],
+  ["ण", "न"],
+  ["प", "फ"],
+  ["ब", "भ", "व"],
+  ["य", "ज"],
+  ["स", "श", "ष"],
+  ["त्र", "ट्र"],
+  ["ज्ञ", "ज्या"],
+  ["र", "ड़"],
+  ["ग्गा", "गा"],
+  ["त्त", "त"],
 ];
 
 /* =====================
-   Substitution maps
+   Marks (matra-diff)
+   - ं /ँ /ः /़ count as matra difference
+   - halant counts as matra difference UNLESS it's inside an entity token
 ===================== */
-function makePairMap(groups, typeCode) {
-  const m = new Map();
-  for (const g of groups) {
-    for (let i = 0; i < g.length; i++) {
-      for (let j = 0; j < g.length; j++) {
+const MATRA_CHARS = new Set([
+  "\u0901", // chandrabindu ँ
+  "\u0902", // anusvara ं
+  "\u0903", // visarga ः
+  "\u093C", // nukta ़
+  "\u094D", // halant ्
+
+  // vowel signs
+  "\u093E", "\u093F", "\u0940", "\u0941", "\u0942",
+  "\u0943", "\u0944", "\u0947", "\u0948", "\u094B", "\u094C",
+  "\u0962", "\u0963",
+]);
+
+function isMatraChar(ch) {
+  return MATRA_CHARS.has(ch);
+}
+
+function removeMatras(s) {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (!isMatraChar(ch)) out += ch;
+  }
+  return out;
+}
+
+function normName(s) {
+  if (!s) return "";
+  // keep Devanagari as-is; just normalize whitespace + remove common punctuation noise
+  return String(s)
+    .replace(/[\u00A0\u200B]/g, " ")
+    .replace(/[.,;:!?'"(){}\[\]<>|\\/`~^*+=—–_-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitWords(s) {
+  const t = normName(s);
+  if (!t) return [];
+  return t.split(" ").filter(Boolean);
+}
+
+/* =====================
+   Confusable map with tiers
+   tier: 1 phonetic, 2 visual P0, 3 visual P1, 4 visual P2
+===================== */
+function buildTierMap() {
+  const map = new Map(); // key: a -> Map(b -> tier)
+  function addGroup(group, tier) {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = 0; j < group.length; j++) {
         if (i === j) continue;
-        m.set(`${g[i]}|${g[j]}`, typeCode);
+        const a = group[i];
+        const b = group[j];
+        if (!map.has(a)) map.set(a, new Map());
+        const inner = map.get(a);
+        const prev = inner.get(b);
+        if (prev == null || tier < prev) inner.set(b, tier);
       }
     }
   }
-  return m;
+  for (const g of PHONETIC) addGroup(g, 1);
+  for (const g of VISUAL_P0) addGroup(g, 2);
+  for (const g of VISUAL_P1) addGroup(g, 3);
+  for (const g of VISUAL_P2) addGroup(g, 4);
+  return map;
 }
 
-const PHON_MAP = makePairMap(PHONETIC, TYPE.PHONETIC);
-const VIS0_MAP = makePairMap(VISUAL_P0, TYPE.VISUAL_P0);
-const VIS1_MAP = makePairMap(VISUAL_P1, TYPE.VISUAL_P1);
-const VIS2_MAP = makePairMap(VISUAL_P2, TYPE.VISUAL_P2);
+const CONFUSABLE = buildTierMap();
 
-function substType(a, b) {
-  if (a === b) return TYPE.EXACT;
-
-  const p = PHON_MAP.get(`${a}|${b}`);
-  if (p != null) return p;
-
-  const v0 = VIS0_MAP.get(`${a}|${b}`);
-  if (v0 != null) return v0;
-
-  const v1 = VIS1_MAP.get(`${a}|${b}`);
-  if (v1 != null) return v1;
-
-  const v2 = VIS2_MAP.get(`${a}|${b}`);
-  if (v2 != null) return v2;
-
-  return TYPE.OTHER;
+function confusableTier(a, b) {
+  if (a === b) return 0;
+  const m = CONFUSABLE.get(a);
+  if (!m) return null;
+  const t = m.get(b);
+  return t == null ? null : t;
 }
 
 /* =====================
-   Normalization / tokenization
+   Multi-entity dictionary (all tokens with length>1 from sets)
 ===================== */
-function normStrict(s) {
-  if (s == null) return "";
-  s = String(s).replace(/\u00A0/g, " ").trim();
-  s = s.replace(/[.,;:|/\\()[\]{}<>"'`~!@#$%^&*_+=?-]/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
-  return s;
-}
-function tokenizeStrict(s) {
-  s = normStrict(s);
-  if (!s) return [];
-  return s.split(" ").filter(Boolean);
-}
-function stripMarks(s) {
-  const x = normStrict(s);
-  if (!x) return "";
-  let out = "";
-  for (const ch of x) {
-    if (MARKS_AS_MATRA.has(ch)) continue;
-    out += ch;
-  }
-  return out.replace(/\s+/g, " ").trim();
-}
-
-/* =====================
-   Entity segmentation (multi-glyph units)
-===================== */
-function buildEntityList() {
+function buildMultiEntityList() {
   const set = new Set();
-  const addAll = (arr) => { for (const g of arr) for (const it of g) set.add(it); };
-  addAll(VISUAL_P0);
-  addAll(VISUAL_P1);
-  addAll(VISUAL_P2);
-  addAll(PHONETIC);
-  set.add("१");
-  set.add("१।");
-  return Array.from(set).filter(Boolean).sort((a, b) => b.length - a.length);
-}
-const ENTITY_LIST = buildEntityList();
+  const pushAll = (groups) => {
+    for (const g of groups) for (const tok of g) if (tok.length > 1) set.add(tok);
+  };
+  pushAll(VISUAL_P0);
+  pushAll(VISUAL_P1);
+  pushAll(VISUAL_P2);
+  pushAll(PHONETIC);
 
-function segmentEntities(word) {
-  const w = word || "";
-  const out = [];
+  // Sort longest-first for greedy tokenization
+  return Array.from(set).sort((a, b) => b.length - a.length);
+}
+const MULTI_ENTITIES = buildMultiEntityList();
+
+/* =====================
+   Tokenize a word into entity tokens
+   - Greedy match multi-entities (including ones that contain matras/halant)
+   - Then attach trailing matra marks to the chosen entity (so त्रा becomes one token)
+===================== */
+const WORD_CACHE = new Map(); // word -> parsed
+
+function parseWord(word) {
+  const w = normName(word);
+  const cached = WORD_CACHE.get(w);
+  if (cached) return cached;
+
+  const tokens = [];
   let i = 0;
   while (i < w.length) {
+    // skip leading spaces (shouldn't exist after normName, but safe)
+    if (w[i] === " ") { i++; continue; }
+
     let matched = null;
-    for (const ent of ENTITY_LIST) {
-      if (ent && w.startsWith(ent, i)) { matched = ent; break; }
+    for (const ent of MULTI_ENTITIES) {
+      if (w.startsWith(ent, i)) { matched = ent; break; }
     }
+
+    let surface;
+    let isMulti = false;
     if (matched) {
-      out.push(matched);
+      surface = matched;
+      isMulti = true;
       i += matched.length;
     } else {
-      out.push(w[i]);
+      surface = w[i];
+      isMulti = false;
       i += 1;
     }
-  }
-  return out;
-}
 
-function isMatraLikeUnit(u) {
-  return u && u.length === 1 && MATRAS.has(u);
-}
-
-function extractMatrasFromUnit(u) {
-  const out = [];
-  if (!u) return out;
-  for (const ch of u) {
-    if (MATRAS.has(ch)) out.push(ch);
-  }
-  return out;
-}
-
-/* =====================
-   Build STRUCTURAL slots:
-   - Structural base tokens: entities excluding standalone matras.
-   - Each base token gets an attached matra cluster:
-     (a) matras inside the base token itself (e.g., "हा" contains "ा")
-     (b) trailing standalone matra units until next base token.
-   Marks are already stripped by stripMarks().
-
-   This enforces:
-   - Matras DO NOT affect match/alignment
-   - Matra-vs-consonant can never be “explained” as matra mismatch
-===================== */
-function toStructSlots(rawWord) {
-  const wRaw = normStrict(rawWord);
-  if (!wRaw) return null;
-
-  const w = stripMarks(wRaw).replace(/\s+/g, "");
-  if (!w) return null;
-
-  // DO NOT strip matras before segmentation:
-  const ents = segmentEntities(w);
-
-  const slots = [];
-  let cur = null;
-
-  for (const ent of ents) {
-    if (!ent) continue;
-
-    if (isMatraLikeUnit(ent)) {
-      // attach to previous structural slot if present; otherwise ignore (non-structural)
-      if (cur) cur.matras.push(ent);
-      continue;
+    // Attach trailing marks (matras/diacritics/halant) to this token
+    while (i < w.length && isMatraChar(w[i])) {
+      surface += w[i];
+      i++;
     }
 
-    // structural base token
-    cur = { base: ent, matras: [] };
+    // If we accidentally got a pure-mark token, discard it
+    const struct = removeMatras(surface);
+    if (!struct) continue;
 
-    // include matras that are embedded inside this base token (multi-entity)
-    const inner = extractMatrasFromUnit(ent);
-    if (inner.length) cur.matras.push(...inner);
-
-    slots.push(cur);
-  }
-
-  return slots;
-}
-
-function matraCost(aMatras, bMatras) {
-  const a = aMatras || [];
-  const b = bMatras || [];
-  const n = Math.min(a.length, b.length);
-  let cost = Math.abs(a.length - b.length);
-  for (let i = 0; i < n; i++) {
-    if (a[i] !== b[i]) cost += 1;
-  }
-  return cost;
-}
-
-/* =====================
-   FULL word compare (no insert/delete)
-   Structural compare only (matras ignored for match, only penalty)
-===================== */
-function compareWordFull(qWord, cWord, allowConsonantSubs) {
-  const qSlots = toStructSlots(qWord);
-  const cSlots = toStructSlots(cWord);
-  if (!qSlots || !cSlots) return { ok: false };
-
-  const qBase = qSlots.map(s => s.base);
-  const cBase = cSlots.map(s => s.base);
-
-  if (qBase.length !== cBase.length) return { ok: false };
-
-  let consonantMismatches = 0;
-  let phoneticCount = 0;
-  let visualP0Count = 0;
-  let visualP1Count = 0;
-  let visualP2Count = 0;
-
-  for (let i = 0; i < qBase.length; i++) {
-    const a = qBase[i];
-    const b = cBase[i];
-    if (a === b) continue;
-
-    if (!allowConsonantSubs) return { ok: false };
-
-    const t = substType(a, b);
-    if (t === TYPE.PHONETIC) phoneticCount += 1;
-    else if (t === TYPE.VISUAL_P0) visualP0Count += 1;
-    else if (t === TYPE.VISUAL_P1) visualP1Count += 1;
-    else if (t === TYPE.VISUAL_P2) visualP2Count += 1;
-    else return { ok: false };
-
-    consonantMismatches += 1;
-  }
-
-  if (consonantMismatches > MAX_CONS_MISMATCH_PER_WORD) return { ok: false };
-
-  // matra penalty only (never affects match eligibility)
-  let matraMismatches = 0;
-  for (let i = 0; i < qSlots.length; i++) {
-    matraMismatches += matraCost(qSlots[i].matras, cSlots[i].matras);
-  }
-
-  const totalVisual = visualP0Count + visualP1Count + visualP2Count;
-  let typeBucket = 4;
-  if (consonantMismatches === 0) typeBucket = 0;
-  else if (phoneticCount > 0 && totalVisual === 0) typeBucket = 0;
-  else if (phoneticCount === 0 && totalVisual > 0) {
-    if (visualP0Count > 0 && (visualP1Count + visualP2Count) === 0) typeBucket = 1;
-    else if (visualP1Count > 0 && (visualP0Count + visualP2Count) === 0) typeBucket = 2;
-    else if (visualP2Count > 0 && (visualP0Count + visualP1Count) === 0) typeBucket = 3;
-    else typeBucket = 4;
-  } else {
-    typeBucket = 4;
-  }
-
-  return {
-    ok: true,
-    consonantMismatches,
-    matraMismatches,
-    typeBucket,
-    detail: { phoneticCount, visualP0Count, visualP1Count, visualP2Count }
-  };
-}
-
-/* =====================
-   Older PF (K=2/3) compare
-   K is based on STRUCTURAL entity length (matras excluded)
-===================== */
-function compareWordPrefixFallback(qWord, cWord, allowConsonantSubs) {
-  if (!allowConsonantSubs) return { ok: false };
-
-  const qSlots = toStructSlots(qWord);
-  const cSlots = toStructSlots(cWord);
-  if (!qSlots || !cSlots) return { ok: false };
-
-  const qBase = qSlots.map(s => s.base);
-  const cBase = cSlots.map(s => s.base);
-
-  const qLen = qBase.length;
-  const cLen = cBase.length;
-
-  if (!(qLen === 2 || qLen === 3)) return { ok: false };
-
-  const K = qLen;
-  const maxSubs = (K === 2) ? PREFIX_K2_MAX_SUBS : PREFIX_K3_MAX_SUBS;
-
-  if (cLen < qLen + 8) return { ok: false };
-  const extraSuffix = cLen - qLen;
-  if (extraSuffix > PREFIX_FALLBACK_MAX_EXTRA_SUFFIX) return { ok: false };
-
-  let subs = 0;
-  let phoneticCount = 0;
-  let visualP0Count = 0;
-  let visualP1Count = 0;
-  let visualP2Count = 0;
-
-  // matra penalty (prefix area only)
-  let matraMismatches = 0;
-
-  for (let i = 0; i < K; i++) {
-    const a = qBase[i];
-    const b = cBase[i];
-
-    if (a !== b) {
-      const t = substType(a, b);
-      if (t === TYPE.OTHER) return { ok: false };
-
-      subs += 1;
-      if (subs > maxSubs) return { ok: false };
-
-      if (t === TYPE.PHONETIC) phoneticCount += 1;
-      else if (t === TYPE.VISUAL_P0) visualP0Count += 1;
-      else if (t === TYPE.VISUAL_P1) visualP1Count += 1;
-      else if (t === TYPE.VISUAL_P2) visualP2Count += 1;
+    // Extract marks for matraDiff
+    let marks = [];
+    for (let k = 0; k < surface.length; k++) {
+      const ch = surface[k];
+      if (isMatraChar(ch)) marks.push(ch);
     }
 
-    // matra penalty attached to this structural slot
-    matraMismatches += matraCost(qSlots[i].matras, cSlots[i].matras);
-  }
-
-  const totalVisual = visualP0Count + visualP1Count + visualP2Count;
-  let typeBucket = 4;
-  if (subs === 0) typeBucket = 0;
-  else if (phoneticCount > 0 && totalVisual === 0) typeBucket = 0;
-  else if (phoneticCount === 0 && totalVisual > 0) {
-    if (visualP0Count > 0 && (visualP1Count + visualP2Count) === 0) typeBucket = 1;
-    else if (visualP1Count > 0 && (visualP0Count + visualP2Count) === 0) typeBucket = 2;
-    else if (visualP2Count > 0 && (visualP0Count + visualP1Count) === 0) typeBucket = 3;
-    else typeBucket = 4;
-  } else {
-    typeBucket = 4;
-  }
-
-  return {
-    ok: true,
-    K,
-    subs,
-    typeBucket,
-    matraMismatches,
-    extraSuffix,
-    detail: { phoneticCount, visualP0Count, visualP1Count, visualP2Count }
-  };
-}
-
-/* =====================
-   NEW: Additions + outside substitution fallback (LOWEST rank)
-
-   Caps updated to your finalized rule:
-     qLen 1–3 => 0
-     qLen 4–6 => 1
-     qLen 7–10 => 2
-     qLen 11+ => 3
-
-   qLen is STRUCTURAL length (matras excluded).
-===================== */
-function outsideSubsCapByLen(qLen) {
-  if (qLen <= 3) return 0;
-  if (qLen >= 4 && qLen <= 6) return 1;
-  if (qLen >= 7 && qLen <= 10) return 2;
-  return 3; // 11+
-}
-
-// Compares query STRUCTURAL entities against candidate STRUCTURAL prefix entities.
-// Allows:
-// - standard substitutions from your sets (not counted as outside)
-// - outside substitutions capped by qLen
-// - suffix additions (candidate can be longer structurally)
-function compareWordAddOutside(qWord, cWord, allowConsonantSubs, addCap /* null = unlimited */) {
-  if (!allowConsonantSubs) return { ok: false };
-
-  const qSlots = toStructSlots(qWord);
-  const cSlots = toStructSlots(cWord);
-  if (!qSlots || !cSlots) return { ok: false };
-
-  const qBase = qSlots.map(s => s.base);
-  const cBase = cSlots.map(s => s.base);
-
-  const qLen = qBase.length;
-  const cLen = cBase.length;
-
-  if (cLen < qLen + 8) return { ok: false };
-
-  const additions = cLen - qLen;
-  if (addCap != null && additions > addCap) return { ok: false };
-
-  const maxOutside = outsideSubsCapByLen(qLen);
-
-  let outsideSubs = 0;
-  let consonantMismatches = 0;
-  let phoneticCount = 0;
-  let visualP0Count = 0;
-  let visualP1Count = 0;
-  let visualP2Count = 0;
-  let outsideCount = 0;
-
-  // matra penalty only over the aligned prefix structural slots
-  let matraMismatches = 0;
-
-  for (let i = 0; i < qLen; i++) {
-    const a = qBase[i];
-    const b = cBase[i];
-
-    if (a !== b) {
-      const t = substType(a, b);
-      if (t === TYPE.OTHER) {
-        outsideSubs += 1;
-        outsideCount += 1;
-        if (outsideSubs > maxOutside) return { ok: false };
-        consonantMismatches += 1;
-      } else {
-        consonantMismatches += 1;
-        if (t === TYPE.PHONETIC) phoneticCount += 1;
-        else if (t === TYPE.VISUAL_P0) visualP0Count += 1;
-        else if (t === TYPE.VISUAL_P1) visualP1Count += 1;
-        else if (t === TYPE.VISUAL_P2) visualP2Count += 1;
-      }
+    // Decision: ignore halant in matraDiff if it’s part of an entity token
+    // (i.e., if token was created by multi-entity match or contains halant inside)
+    if (isMulti) {
+      marks = marks.filter(ch => ch !== "\u094D");
     }
 
-    matraMismatches += matraCost(qSlots[i].matras, cSlots[i].matras);
+    // Sort marks for stable distance calc
+    const marksKey = marks.slice().sort().join("");
+
+    tokens.push({
+      surface,
+      struct,
+      isMulti,
+      marksKey,
+    });
   }
 
-  const totalVisual = visualP0Count + visualP1Count + visualP2Count;
-  let typeBucket = 4;
-  if (consonantMismatches === 0) typeBucket = 0;
-  else if (phoneticCount > 0 && totalVisual === 0) typeBucket = 0;
-  else if (phoneticCount === 0 && totalVisual > 0) {
-    if (visualP0Count > 0 && (visualP1Count + visualP2Count) === 0) typeBucket = 1;
-    else if (visualP1Count > 0 && (visualP0Count + visualP2Count) === 0) typeBucket = 2;
-    else if (visualP2Count > 0 && (visualP0Count + visualP1Count) === 0) typeBucket = 3;
-    else typeBucket = 4;
-  } else {
-    typeBucket = 4;
-  }
-
-  return {
-    ok: true,
-    qLen,
-    additions,
-    outsideSubs,
-    consonantMismatches,
-    matraMismatches,
-    typeBucket,
-    detail: { phoneticCount, visualP0Count, visualP1Count, visualP2Count, outsideCount }
+  const parsed = {
+    raw: w,
+    tokens,
+    structs: tokens.map(t => t.struct),
+    len: tokens.length,
   };
+  WORD_CACHE.set(w, parsed);
+  return parsed;
 }
 
 /* =====================
-   Joined targets for 1-word scoring
+   Small Levenshtein (marks strings are tiny)
 ===================== */
-function buildOneWordTargets(tokens) {
-  const out = [];
-  for (let i = 0; i < tokens.length; i++) out.push({ text: tokens[i], kind: "TOKEN", pos: i, span: 1 });
-  for (let i = 0; i < tokens.length - 1; i++) out.push({ text: tokens[i] + tokens[i+1], kind: "JOIN2", pos: i, span: 2 });
-  if (tokens.length >= 2) out.push({ text: tokens.join(""), kind: "FULLJOIN", pos: 0, span: tokens.length });
-  return out;
+function lev(a, b) {
+  if (a === b) return 0;
+  const n = a.length, m = b.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+
+  const dp = new Array(m + 1);
+  for (let j = 0; j <= m; j++) dp[j] = j;
+
+  for (let i = 1; i <= n; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const tmp = dp[j];
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[j] = Math.min(
+        dp[j] + 1,       // delete
+        dp[j - 1] + 1,   // insert
+        prev + cost      // replace
+      );
+      prev = tmp;
+    }
+  }
+  return dp[m];
 }
-function kindRank(kind) {
-  if (kind === "TOKEN") return 0;
-  if (kind === "JOIN2") return 1;
-  if (kind === "FULLJOIN") return 2;
-  return 9;
+
+function matraDiffToken(qTok, cTok) {
+  return lev(qTok.marksKey, cTok.marksKey);
 }
 
 /* =====================
-   Exact scenarios
+   Word exact match (struct sequence must be identical)
 ===================== */
-function exactScenarioKey(qToks, cToks) {
-  if (qToks.length === 1) {
-    const q = qToks[0];
-    const targets = buildOneWordTargets(cToks);
+function wordExactMatch(qW, cW) {
+  if (qW.len !== cW.len) return null;
+  for (let i = 0; i < qW.len; i++) {
+    if (qW.structs[i] !== cW.structs[i]) return null;
+  }
+  let md = 0;
+  for (let i = 0; i < qW.len; i++) md += matraDiffToken(qW.tokens[i], cW.tokens[i]);
+  return { matraDiff: md };
+}
 
-    let best = null;
-    for (const t of targets) {
-      if (t.text === q) {
-        const desc = {
-          ok: true,
-          scenarioId: 0,
-          kindRank: kindRank(t.kind),
-          pos: t.pos,
-          span: t.span,
-          suffixCount: 0,
-          totalWords: cToks.length
+/* =====================
+   Outside-substitution caps (per word entity length)
+   - len<=2 => 0
+   - 3..5  => 1
+   - 6..9  => 2
+   - 10+   => 3
+===================== */
+function outsideNonEmptyCapForEntities(entLen) {
+  if (entLen <= 2) return 0;
+  if (entLen <= 5) return 1;
+  if (entLen <= 9) return 2;
+  return 3;
+}
+
+// Empty substitution quota:
+// “up to 2 less than total number of entities” => max deletions = entLen - 2
+function emptyCapForEntities(entLen) {
+  if (entLen <= 2) return 0;
+  return Math.max(0, entLen - 2);
+}
+
+/* =====================
+   Word fuzzy match via DP
+   Operations allowed:
+   - match (struct equal) -> matraDiff only
+   - internal substitution (confusable sets) -> internalCount + tierScore
+   - outside substitution (non-empty)        -> outsideNonEmpty++
+   - empty substitution (deletion)           -> outsideEmpty++
+   - suffix insertions only (extra cand tokens at end) -> insertionCount
+   Constraints:
+   - outside subs forbidden in protected prefix
+   - outsideNonEmpty cap (as above)
+   - outsideEmpty cap (entLen-2)
+===================== */
+function betterWordState(a, b) {
+  if (b == null) return true;
+  if (a == null) return false;
+
+  // Primary ordering inside a word:
+  // externalTotal, externalNonEmpty, internalCount, tierScore, matraDiff, outsidePosPenalty, insertionCount
+  if (a.externalTotal !== b.externalTotal) return a.externalTotal < b.externalTotal;
+  if (a.outsideNonEmpty !== b.outsideNonEmpty) return a.outsideNonEmpty < b.outsideNonEmpty;
+  if (a.internalCount !== b.internalCount) return a.internalCount < b.internalCount;
+  if (a.tierScore !== b.tierScore) return a.tierScore < b.tierScore;
+  if (a.matraDiff !== b.matraDiff) return a.matraDiff < b.matraDiff;
+  if (a.outsidePosPenalty !== b.outsidePosPenalty) return a.outsidePosPenalty < b.outsidePosPenalty;
+  if (a.insertionCount !== b.insertionCount) return a.insertionCount < b.insertionCount;
+
+  // tie
+  return false;
+}
+
+function wordFuzzyMatch(qW, cW, opts) {
+  const qLen = qW.len;
+  const cLen = cW.len;
+
+  const outsideCap = opts.allowOutside ? outsideNonEmptyCapForEntities(qLen) : 0;
+  const emptyCap = opts.allowOutside ? emptyCapForEntities(qLen) : 0;
+  const protectedPrefixLen = opts.protectedPrefixLen || 0; // applies only to word1 of multiword queries
+  const maxInternal = 4; // as per spec
+
+  // dp[i][j] = best state converting q[0..i) to c[0..j)
+  const dp = Array.from({ length: qLen + 1 }, () => Array(cLen + 1).fill(null));
+
+  dp[0][0] = {
+    matraDiff: 0,
+    internalCount: 0,
+    tierScore: 0,
+    outsideNonEmpty: 0,
+    outsideEmpty: 0,
+    outsidePosPenalty: 0,
+    insertionCount: 0,
+    externalTotal: 0,
+    // for explain
+    ops: [],
+  };
+
+  for (let i = 0; i <= qLen; i++) {
+    for (let j = 0; j <= cLen; j++) {
+      const cur = dp[i][j];
+      if (!cur) continue;
+
+      // If query fully consumed, we can only accept suffix insertions (remaining cand tokens)
+      if (i === qLen) {
+        const ins = cLen - j;
+        const st = {
+          ...cur,
+          insertionCount: ins,
         };
-        if (!best) best = desc;
-        else {
-          const a = [desc.kindRank, desc.pos, desc.span];
-          const b = [best.kindRank, best.pos, best.span];
-          if (a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]) || (a[0] === b[0] && a[1] === b[1] && a[2] < b[2])) {
-            best = desc;
+        st.externalTotal = st.outsideNonEmpty + st.outsideEmpty;
+        // choose best among dp[qLen][cLen] via a special accumulator later
+        // We'll place it at dp[qLen][cLen] by “fast-forwarding”.
+        if (ins >= 0) {
+          const finalOps = cur.ops.slice();
+          if (ins > 0) finalOps.push(`+ins:${ins}`);
+          const fin = { ...st, ops: finalOps };
+          const prev = dp[qLen][cLen];
+          if (betterWordState(fin, prev)) dp[qLen][cLen] = fin;
+        }
+        continue;
+      }
+
+      // 1) Match/Substitute consuming one from each
+      if (j < cLen) {
+        const qTok = qW.tokens[i];
+        const cTok = cW.tokens[j];
+
+        // Match (struct equal)
+        if (qTok.struct === cTok.struct) {
+          const md = matraDiffToken(qTok, cTok);
+          const next = {
+            ...cur,
+            matraDiff: cur.matraDiff + md,
+            ops: cur.ops.concat(md ? [`=${i}:${md}`] : [`=${i}`]),
+          };
+          next.externalTotal = next.outsideNonEmpty + next.outsideEmpty;
+          const prev = dp[i + 1][j + 1];
+          if (betterWordState(next, prev)) dp[i + 1][j + 1] = next;
+        } else {
+          // Internal substitution if confusable
+          const tier = confusableTier(qTok.surface, cTok.surface);
+          if (tier != null) {
+            if (cur.internalCount + 1 <= maxInternal) {
+              const next = {
+                ...cur,
+                internalCount: cur.internalCount + 1,
+                tierScore: cur.tierScore + tier,
+                ops: cur.ops.concat([`~${i}:${tier}`]),
+              };
+              next.externalTotal = next.outsideNonEmpty + next.outsideEmpty;
+              const prev = dp[i + 1][j + 1];
+              if (betterWordState(next, prev)) dp[i + 1][j + 1] = next;
+            }
+          } else if (opts.allowOutside) {
+            // Outside substitution (non-empty)
+            // Constraints:
+            // - qLen <=2 => outsideCap=0 already
+            // - forbidden in protected prefix
+            if (i >= protectedPrefixLen && cur.outsideNonEmpty < outsideCap) {
+              const posPenalty = cur.outsidePosPenalty + ((qLen - 1 - i) * 10 + 1); // earlier is worse
+              const next = {
+                ...cur,
+                outsideNonEmpty: cur.outsideNonEmpty + 1,
+                outsidePosPenalty: posPenalty,
+                ops: cur.ops.concat([`!${i}`]),
+              };
+              next.externalTotal = next.outsideNonEmpty + next.outsideEmpty;
+              const prev = dp[i + 1][j + 1];
+              if (betterWordState(next, prev)) dp[i + 1][j + 1] = next;
+            }
           }
         }
       }
-    }
-    if (best) return best;
 
-    if (cToks.length >= 1 && cToks[0] === q) {
-      return {
-        ok: true,
-        scenarioId: 1,
-        kindRank: 0,
-        pos: 0,
-        span: 1,
-        suffixCount: cToks.length - 1,
-        totalWords: cToks.length
-      };
-    }
-
-    return { ok: false };
-  }
-
-  if (cToks.length >= qToks.length) {
-    let ok = true;
-    for (let i = 0; i < qToks.length; i++) {
-      if (qToks[i] !== cToks[i]) { ok = false; break; }
-    }
-    if (ok) {
-      return { ok: true, scenarioId: 10, kindRank: 0, pos: 0, span: qToks.length, suffixCount: cToks.length - qToks.length, totalWords: cToks.length };
+      // 2) Empty substitution (deletion): consume one query token, keep candidate
+      if (opts.allowOutside) {
+        if (i >= protectedPrefixLen && cur.outsideEmpty < emptyCap) {
+          const posPenalty = cur.outsidePosPenalty + ((qLen - 1 - i) * 10 + 2);
+          const next = {
+            ...cur,
+            outsideEmpty: cur.outsideEmpty + 1,
+            outsidePosPenalty: posPenalty,
+            ops: cur.ops.concat([`Ø${i}`]),
+          };
+          next.externalTotal = next.outsideNonEmpty + next.outsideEmpty;
+          const prev = dp[i + 1][j];
+          if (betterWordState(next, prev)) dp[i + 1][j] = next;
+        }
+      }
     }
   }
 
-  return { ok: false };
+  const fin = dp[qLen][cLen];
+  if (!fin) return null;
+
+  // Global “insertions ranked at bottom”:
+  // keep insertionCount but it will push match to modeGroup=3 later.
+  return {
+    matraDiff: fin.matraDiff,
+    internalCount: fin.internalCount,
+    tierScore: fin.tierScore,
+    outsideNonEmpty: fin.outsideNonEmpty,
+    outsideEmpty: fin.outsideEmpty,
+    outsidePosPenalty: fin.outsidePosPenalty,
+    insertionCount: fin.insertionCount,
+    ops: fin.ops,
+  };
 }
 
 /* =====================
-   Typing buckets (UPDATED)
-   2-word: tier ladder with caps (not simple lexicographic)
+   Affix (word insertion) ranking helper
+   - prefers: none < suffix-only < prefix-only < middle-only < combos
 ===================== */
-function typingBucketOrder(nWords, perWordConMism, perWordMatraMism, totalConMism) {
-  if (nWords === 1) {
-    if (totalConMism <= 4) return 0;
-    return null;
-  }
+function affixKey(prefixWords, middleWords, suffixWords) {
+  const p = prefixWords, m = middleWords, s = suffixWords;
 
-  if (nWords === 2) {
-    if (totalConMism > MAX_TOTAL_CONS_2WORD) return null;
+  if (p === 0 && m === 0 && s === 0) return [0, 0, 0, 0];
+  if (p === 0 && m === 0 && s > 0) return [1, Math.min(s, 3), s, 0]; // suffix-only
+  if (p > 0 && m === 0 && s === 0) return [2, Math.min(p, 3), p, 0]; // prefix-only
+  if (p === 0 && m > 0 && s === 0) return [3, Math.min(m, 4), m, 0]; // middle-only
 
-    const w1 = perWordConMism[0] ?? 0;
-    const w2 = perWordConMism[1] ?? 0;
-    const m1 = perWordMatraMism[0] ?? 0;
-    const m2 = perWordMatraMism[1] ?? 0;
-
-    // Tier ladder (caps) for second word:
-    // band 0: W2 <= 2 AND M2 == 0  (top band)
-    // band 1: W2 <= 2 AND M2  > 0
-    // band 2: W2  > 2 AND M2 == 0
-    // band 3: W2  > 2 AND M2  > 0
-    const band =
-      (w2 <= 2 && m2 === 0) ? 0 :
-      (w2 <= 2 && m2 > 0)  ? 1 :
-      (w2 > 2  && m2 === 0) ? 2 : 3;
-
-    // Pack in a monotonic way so sorting works:
-    // First word dominates, then its matra penalty, then the band, then W2, then M2.
-    return (w1 * 1_000_000_000) + (m1 * 10_000_000) + (band * 1_000_000) + (w2 * 10_000) + Math.min(m2, 9999);
-  }
-
-  if (totalConMism > MAX_TOTAL_CONS_3PLUS) return null;
-
-  // Perfect consonant skeleton across all words should always be best.
-  if (totalConMism === 0) return 0;
-
-  const w = perWordConMism;
-  const last = nWords - 1;
-  const mid = 1;
-  const first = 0;
-
-  const allZeroExcept = (idx) => w.every((x, i) => (i === idx ? x > 0 : x === 0));
-
-  let old = 9;
-  if (allZeroExcept(last) && w[last] <= 2) old = 0;
-  else if (nWords >= 3 && allZeroExcept(mid) && w[mid] <= 2) old = 1;
-  else if (allZeroExcept(first) && w[first] <= 2) old = 2;
-  else if (allZeroExcept(last) && w[last] <= 4) old = 3;
-  else if (nWords === 3 && w[first] === 0 && w[mid] > 0 && w[mid] <= 2 && w[last] > 0 && w[last] <= 4) old = 4;
-  else if (nWords === 3 && w[last] === 0 && w[first] > 0 && w[first] <= 2 && w[mid] > 0 && w[mid] <= 2) old = 5;
-  else if (nWords === 3 && w[first] <= 2 && w[mid] <= 2 && w[last] <= 4 && (w[first] + w[mid] + w[last] > 0)) old = 6;
-  else old = 9;
-
-  // Shift by +1 so any consonant-mismatch case ranks below the perfect-skeleton case.
-  return old + 1;
+  // combos (lowest priority within exact/internal/outside groups)
+  return [4, p + m + s, p, m * 100 + s];
 }
 
 /* =====================
-   Key comparison / utilities
+   Name-level alignment (ordered subsequence of words)
+   Tries all alignments (names are short) and picks best by rankKey.
 ===================== */
-function cmpKey(a, b) {
-  const n = Math.max(a.length, b.length);
+function compareRankKey(a, b) {
+  const A = a, B = b;
+  const n = Math.max(A.length, B.length);
   for (let i = 0; i < n; i++) {
-    const av = a[i] ?? 0;
-    const bv = b[i] ?? 0;
-    if (av !== bv) return av < bv ? -1 : 1;
+    const av = A[i] ?? 0;
+    const bv = B[i] ?? 0;
+    if (av !== bv) return av - bv;
   }
   return 0;
 }
 
-function parseSerial(serial) {
-  if (serial == null) return 0;
-  const s = String(serial).trim();
-  const m = s.match(/(\d+)/);
-  if (!m) return 0;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : 0;
+function penaltyFromMatraDiff(d) {
+  // Threshold behavior used for multiword exact ordering:
+  // small diffs (<=2) are “light”; >=3 are “heavy” and should drop below affix-exact matches.
+  if (d <= 2) return d;
+  return 100 + d;
 }
 
-/* =====================
-   Field evaluation (core)
-===================== */
-function evaluateAgainstField(qToks, candToks, serialNo, fieldName, exactOn) {
-  // EXACT MODE always outranks typing
-  const ex = exactScenarioKey(qToks, candToks);
-  if (ex.ok) {
-    const key = [0, ex.scenarioId, ex.kindRank, ex.pos, ex.suffixCount, ex.totalWords, serialNo];
-    const explain = `mode=EXACT field=${fieldName} scenario=${ex.scenarioId} kindRank=${ex.kindRank} pos=${ex.pos} suffix=${ex.suffixCount} words=${ex.totalWords} serial=${serialNo}`;
-    return { ok: true, key, explain, match_field: fieldName };
-  }
-
-  if (exactOn) return { ok: false }; // exact mode disallows consonant subs entirely
-
-  // TYPING MODE
-  if (candToks.length < qToks.length) return { ok: false };
-
-  // 1-word query: match ANY token position + joins (FULL word compare)
-  if (qToks.length === 1) {
-    const q = qToks[0];
-    const targets = buildOneWordTargets(candToks);
-
-    let best = null;
-    for (const t of targets) {
-      const r = compareWordFull(q, t.text, true);
-      if (!r.ok) continue;
-
-      const totalCon = r.consonantMismatches;
-      const totalMatra = r.matraMismatches;
-      const bucket = typingBucketOrder(1, [totalCon], [totalMatra], totalCon);
-      if (bucket == null) continue;
-
-      const key = [1, 0, bucket, totalCon, r.typeBucket, totalMatra, kindRank(t.kind), t.pos, serialNo];
-      const explain = `mode=TYPO_FULL field=${fieldName} bucket=${bucket} con=${totalCon} typeB=${r.typeBucket} matra=${totalMatra} kind=${t.kind}@${t.pos} serial=${serialNo}`;
-
-      const cand = { ok: true, key, explain, match_field: fieldName };
-      if (!best || cmpKey(cand.key, best.key) < 0) best = cand;
-    }
-
-    // If FULL fails for 1-word, try the new ADD/OUTSIDE fallback against token/join variants
-    if (!best) {
-      let bestAO = null;
-      for (const t of targets) {
-        const rao = compareWordAddOutside(q, t.text, true, null /* unlimited adds */);
-        if (!rao.ok) continue;
-
-        // family=2 (lowest), then outsideSubs, then additions, then typeBucket, then matra, then kindRank/pos
-        const key = [1, 2, rao.outsideSubs, rao.additions, rao.typeBucket, rao.matraMismatches, kindRank(t.kind), t.pos, serialNo];
-        const explain = `mode=TYPO_AO field=${fieldName} outside=${rao.outsideSubs} add=${rao.additions} typeB=${rao.typeBucket} matra=${rao.matraMismatches} kind=${t.kind}@${t.pos} serial=${serialNo}`;
-
-        const cand = { ok: true, key, explain, match_field: fieldName };
-        if (!bestAO || cmpKey(cand.key, bestAO.key) < 0) bestAO = cand;
-      }
-      if (bestAO) return bestAO;
-    }
-
-    return best || { ok: false };
-  }
-
-  // 2+ word query: align to first qToks.length candidate tokens (prefix match is handled later)
-  const aligned = candToks.slice(0, qToks.length);
-
-  // 1) FULL word-to-word (your normal rules)
-  const perWordFull = [];
-  let totalConFull = 0;
-  let totalMatraFull = 0;
-
-  let fullOk = true;
-  for (let i = 0; i < qToks.length; i++) {
-    const r = compareWordFull(qToks[i], aligned[i], true);
-    if (!r.ok) { fullOk = false; break; }
-    perWordFull.push(r);
-    totalConFull += r.consonantMismatches;
-    totalMatraFull += r.matraMismatches;
-  }
-
-  if (fullOk) {
-    const bucket = typingBucketOrder(
-      qToks.length,
-      perWordFull.map(x => x.consonantMismatches),
-      perWordFull.map(x => x.matraMismatches),
-      totalConFull
-    );
-    if (bucket == null) return { ok: false };
-
-    let severitySum = 0;
-    for (const w of perWordFull) {
-      severitySum += (w.consonantMismatches * 1_000_000) + (w.typeBucket * 10_000) + w.matraMismatches;
-    }
-
-    const suffixCount = candToks.length - qToks.length;
-    const totalWords = candToks.length;
-
-    const key = [1, 0, bucket, severitySum, suffixCount, totalWords, serialNo];
-    const explain = `mode=TYPO_FULL field=${fieldName} bucket=${bucket} w=[${perWordFull.map(x=>x.consonantMismatches).join(',')}] m=[${perWordFull.map(x=>x.matraMismatches).join(',')}] con=${totalConFull} matra=${totalMatraFull} sum=${severitySum} suffix=${suffixCount} words=${totalWords} serial=${serialNo}`;
-
-    return { ok: true, key, explain, match_field: fieldName };
-  }
-
-  // 2) PF fallback (K=2/3 rule)
-  const perWordPF = [];
-  let globalExtra = 0;
-
-  let pfOk = true;
-  for (let i = 0; i < qToks.length; i++) {
-    const rpf = compareWordPrefixFallback(qToks[i], aligned[i], true);
-    if (!rpf.ok) { pfOk = false; break; }
-    perWordPF.push(rpf);
-    globalExtra += rpf.extraSuffix;
-  }
-
-  if (pfOk) {
-    if (globalExtra > PREFIX_FALLBACK_GLOBAL_EXTRA_PER_WORD * qToks.length) return { ok: false };
-
-    let subsSum = 0;
-    let typeSum = 0;
-    let matraSum = 0;
-    let extraSum = 0;
-
-    for (let i = 0; i < perWordPF.length; i++) {
-      const w = perWordPF[i];
-      const posW = 1.0 + (Math.max(0, (3 - i)) * 0.05);
-      subsSum += w.subs * 1000 * posW;
-      typeSum += w.typeBucket * 10 * posW;
-      matraSum += w.matraMismatches * 1 * posW;
-      extraSum += w.extraSuffix * 100 * posW;
-    }
-
-    const suffixCount = candToks.length - qToks.length;
-    const totalWords = candToks.length;
-
-    const key = [1, 1, subsSum, typeSum, matraSum, extraSum, suffixCount, totalWords, serialNo];
-    const explain = `mode=TYPO_PF field=${fieldName} subsSum=${subsSum.toFixed(2)} typeSum=${typeSum.toFixed(2)} matraSum=${matraSum.toFixed(2)} extraSum=${extraSum.toFixed(2)} globalExtra=${globalExtra} serial=${serialNo}`;
-
-    return { ok: true, key, explain, match_field: fieldName };
-  }
-
-  // 3) NEW lowest-rank fallback: additions + outside substitutions
-  //    Apply word-by-word prefix compare.
-  const perWordAO = [];
-  let outsideTotal = 0;
-  let addTotal = 0;
-  let typeSum = 0;
-  let matraSum = 0;
-
-  for (let i = 0; i < qToks.length; i++) {
-    const isFirst = (i === 0);
-    const addCap = isFirst ? ADD_FALLBACK_FIRST_WORD_MAX_ADD_ENTITIES_IN_MULTI : null;
-
-    const rao = compareWordAddOutside(qToks[i], aligned[i], true, addCap);
-    if (!rao.ok) return { ok: false };
-
-    perWordAO.push(rao);
-
-    // penalize earlier words more (first word integrity)
-    const posW = 1.0 + (Math.max(0, (3 - i)) * 0.10);
-    outsideTotal += rao.outsideSubs * posW;
-    addTotal += rao.additions * (isFirst ? 2.0 : 1.0); // first-word additions heavier
-    typeSum += rao.typeBucket * posW;
-    matraSum += rao.matraMismatches * posW;
-  }
-
-  const suffixCount = candToks.length - qToks.length;
-  const totalWords = candToks.length;
-
-  // family=2 => below FULL and PF
-  // Order inside family: outsideSubs (worse), then additions (worse), then type, then matra, then suffixCount, then serial
-  const key = [1, 2, outsideTotal, addTotal, typeSum, matraSum, suffixCount, totalWords, serialNo];
-
-  const explain =
-    `mode=TYPO_AO field=${fieldName} outsideTotal=${outsideTotal.toFixed(2)} addTotal=${addTotal.toFixed(2)} typeSum=${typeSum.toFixed(2)} matraSum=${matraSum.toFixed(2)} suffix=${suffixCount} words=${totalWords} serial=${serialNo}`;
-
-  return { ok: true, key, explain, match_field: fieldName };
+function buildExplain(modeLabel, qWords, cWords, alignIdx, prefixWords, middleWords, suffixWords, perWord) {
+  const pairs = alignIdx.map((ci, qi) => `${qWords[qi]}↔${cWords[ci]}`).join(" | ");
+  const md = perWord.map(x => x.matraDiff ?? 0).join(",");
+  const inS = perWord.map(x => x.internalCount ?? 0).join(",");
+  const outS = perWord.map(x => (x.outsideNonEmpty ?? 0) + (x.outsideEmpty ?? 0)).join(",");
+  const insS = perWord.map(x => x.insertionCount ?? 0).join(",");
+  return `${modeLabel}; ${pairs}; affix(p=${prefixWords},m=${middleWords},s=${suffixWords}); matra=[${md}] internal=[${inS}] outside=[${outS}] ins=[${insS}]`;
 }
 
-/* =====================
-   Row evaluation + tie rules
-===================== */
-let scope = "voter";
-let exactOn = false;
-let total = 0;
-let received = 0;
-let buffer = [];
-let qTokens = [];
+function buildRankKeyOneWordExact(matraDiff, prefixWords, middleWords, suffixWords) {
+  // Exact 1-word ranking closely follows the user list:
+  // primary: matraDiff (0,1,2,3,4+), secondary: affix pattern (none, suffix, prefix, middle, combos)
+  const mdGroup = matraDiff <= 3 ? matraDiff : 4;
+  const ak = affixKey(prefixWords, middleWords, suffixWords);
+  return [0, mdGroup, matraDiff, ...ak, prefixWords, middleWords, suffixWords];
+}
 
-function evaluateRow(row) {
-  const serialNo = parseSerial(row.serial_no);
+function buildRankKeyOneWordInternal(internalCount, tierScore, matraDiff, prefixWords, middleWords, suffixWords) {
+  const mdGroup = matraDiff <= 3 ? matraDiff : 4;
+  const ak = affixKey(prefixWords, middleWords, suffixWords);
+  return [1, internalCount, tierScore, mdGroup, matraDiff, ...ak, prefixWords, middleWords, suffixWords];
+}
 
-  const voterTokens = tokenizeStrict(row.voter_name_raw || "");
-  const relTokens = tokenizeStrict(row.relative_name_raw || "");
+function buildRankKeyMultiwordExact(matraDiffs, prefixWords, middleWords, suffixWords) {
+  const ak = affixKey(prefixWords, middleWords, suffixWords);
+
+  // Word weights: word1 matters more than later words
+  let matraPenalty = 0;
+  for (let i = 0; i < matraDiffs.length; i++) {
+    const w = (i === 0) ? 20 : 1;
+    matraPenalty += w * penaltyFromMatraDiff(matraDiffs[i] || 0);
+  }
+
+  // Small affix penalty to break ties; big matraPenalty (>=100) can drop below affix-exact matches
+  const affixPenalty = (prefixWords + middleWords + suffixWords) * 5 + ak[0] * 2;
+  const overall = matraPenalty + affixPenalty;
+
+  return [0, overall, ...ak, ...matraDiffs, prefixWords, middleWords, suffixWords];
+}
+
+function buildRankKeyMultiwordInternal(internalCounts, tierScores, matraDiffs, prefixWords, middleWords, suffixWords) {
+  const ak = affixKey(prefixWords, middleWords, suffixWords);
+
+  const subsVec = internalCounts.slice().reverse(); // last word first (favoured)
+  const tierVec = tierScores.slice().reverse();
+
+  let matraPenalty = 0;
+  for (let i = 0; i < matraDiffs.length; i++) {
+    const w = (i === 0) ? 20 : 1;
+    matraPenalty += w * penaltyFromMatraDiff(matraDiffs[i] || 0);
+  }
+  const affixPenalty = (prefixWords + middleWords + suffixWords) * 5 + ak[0] * 2;
+  const overall = matraPenalty + affixPenalty;
+
+  const internalTotal = internalCounts.reduce((a, b) => a + b, 0);
+
+  return [1, ...subsVec, internalTotal, ...tierVec, overall, ...ak, ...matraDiffs, prefixWords, middleWords, suffixWords];
+}
+
+function buildRankKeyMultiwordOutside(outsideCounts, internalCounts, outsidePosPenalties, tierScores, matraDiffs, prefixWords, middleWords, suffixWords) {
+  const ak = affixKey(prefixWords, middleWords, suffixWords);
+
+  const extVec = outsideCounts.slice().reverse(); // last word first
+  const subsVec = internalCounts.slice().reverse();
+  const posVec = outsidePosPenalties.slice().reverse();
+  const tierVec = tierScores.slice().reverse();
+
+  let matraPenalty = 0;
+  for (let i = 0; i < matraDiffs.length; i++) {
+    const w = (i === 0) ? 20 : 1;
+    matraPenalty += w * penaltyFromMatraDiff(matraDiffs[i] || 0);
+  }
+  const affixPenalty = (prefixWords + middleWords + suffixWords) * 5 + ak[0] * 2;
+  const overall = matraPenalty + affixPenalty;
+
+  const extTotal = outsideCounts.reduce((a, b) => a + b, 0);
+  const internalTotal = internalCounts.reduce((a, b) => a + b, 0);
+
+  return [2, ...extVec, extTotal, ...subsVec, internalTotal, ...posVec, ...tierVec, overall, ...ak, ...matraDiffs, prefixWords, middleWords, suffixWords];
+}
+
+function buildRankKeyMultiwordInsertion(insertionCounts, outsideCounts, internalCounts, outsidePosPenalties, tierScores, matraDiffs, prefixWords, middleWords, suffixWords) {
+  const ak = affixKey(prefixWords, middleWords, suffixWords);
+
+  const insVec = insertionCounts.slice().reverse();
+  const extVec = outsideCounts.slice().reverse();
+  const subsVec = internalCounts.slice().reverse();
+  const posVec = outsidePosPenalties.slice().reverse();
+  const tierVec = tierScores.slice().reverse();
+
+  let matraPenalty = 0;
+  for (let i = 0; i < matraDiffs.length; i++) {
+    const w = (i === 0) ? 20 : 1;
+    matraPenalty += w * penaltyFromMatraDiff(matraDiffs[i] || 0);
+  }
+  const affixPenalty = (prefixWords + middleWords + suffixWords) * 5 + ak[0] * 2;
+  const overall = matraPenalty + affixPenalty;
+
+  const insTotal = insertionCounts.reduce((a, b) => a + b, 0);
+  const extTotal = outsideCounts.reduce((a, b) => a + b, 0);
+  const internalTotal = internalCounts.reduce((a, b) => a + b, 0);
+
+  return [3, ...insVec, insTotal, ...extVec, extTotal, ...subsVec, internalTotal, ...posVec, ...tierVec, overall, ...ak, ...matraDiffs, prefixWords, middleWords, suffixWords];
+}
+
+function matchNameExact(qWordsParsed, candWordsParsed) {
+  const Q = qWordsParsed.length;
+  const C = candWordsParsed.length;
+  if (Q === 0 || C === 0) return null;
+  if (Q > C) return null;
 
   let best = null;
 
-  const consider = (fieldName, candToks) => {
-    if (!candToks.length) return;
-    const res = evaluateAgainstField(qTokens, candToks, serialNo, fieldName, exactOn);
-    if (!res.ok) return;
+  // DFS alignments: pick indices i0 < i1 < ...
+  function rec(qi, startCi, chosen) {
+    if (qi === Q) {
+      // compute affixes
+      const first = chosen[0];
+      const last = chosen[chosen.length - 1];
+      const prefixWords = first;
+      const suffixWords = (C - 1 - last);
+      let middleWords = 0;
+      for (let k = 0; k < chosen.length - 1; k++) {
+        middleWords += (chosen[k + 1] - chosen[k] - 1);
+      }
 
-    if (!best) { best = res; return; }
+      const perWord = [];
+      const md = [];
+      for (let k = 0; k < Q; k++) {
+        const m = wordExactMatch(qWordsParsed[k], candWordsParsed[chosen[k]]);
+        if (!m) return;
+        perWord.push({ matraDiff: m.matraDiff, internalCount: 0, outsideNonEmpty: 0, outsideEmpty: 0, insertionCount: 0, outsidePosPenalty: 0, tierScore: 0 });
+        md.push(m.matraDiff);
+      }
 
-    const c = cmpKey(res.key, best.key);
-    if (c < 0) best = res;
-    else if (c === 0) {
-      if (best.match_field !== "voter" && fieldName === "voter") best = res;
+      let key;
+      if (Q === 1) {
+        key = buildRankKeyOneWordExact(md[0], prefixWords, middleWords, suffixWords);
+      } else {
+        key = buildRankKeyMultiwordExact(md, prefixWords, middleWords, suffixWords);
+      }
+
+      const explain = buildExplain("EXACT", qWordsParsed.map(w => w.raw), candWordsParsed.map(w => w.raw), chosen, prefixWords, middleWords, suffixWords, perWord);
+
+      const cand = { key, explain, chosen, perWord };
+      if (!best || compareRankKey(cand.key, best.key) < 0) best = cand;
+      return;
     }
-  };
 
-  if (scope === "voter") consider("voter", voterTokens);
-  else if (scope === "relative") consider("relative", relTokens);
-  else { consider("voter", voterTokens); consider("relative", relTokens); }
+    for (let ci = startCi; ci < C; ci++) {
+      // Quick structural filter: exact needs same struct sequence
+      if (wordExactMatch(qWordsParsed[qi], candWordsParsed[ci])) {
+        rec(qi + 1, ci + 1, chosen.concat(ci));
+      }
+    }
+  }
+
+  rec(0, 0, []);
+  return best;
+}
+
+function matchNameFuzzy(qWordsParsed, candWordsParsed) {
+  const Q = qWordsParsed.length;
+  const C = candWordsParsed.length;
+  if (Q === 0 || C === 0) return null;
+  if (Q > C) return null;
+
+  let best = null;
+
+  // Extra rule: for 2-word queries, if outside on word2 > n/2, disallow outside on word1
+  // We apply this by trying both options when Q===2.
+  const enforceWord2OutsideGate = (Q === 2);
+
+  function rec(qi, startCi, chosen, perWordStates, outsideUsedWord1Locked) {
+    if (qi === Q) {
+      const first = chosen[0];
+      const last = chosen[chosen.length - 1];
+      const prefixWords = first;
+      const suffixWords = (C - 1 - last);
+      let middleWords = 0;
+      for (let k = 0; k < chosen.length - 1; k++) middleWords += (chosen[k + 1] - chosen[k] - 1);
+
+      const md = perWordStates.map(s => s.matraDiff || 0);
+      const internalCounts = perWordStates.map(s => s.internalCount || 0);
+      const tierScores = perWordStates.map(s => s.tierScore || 0);
+      const outsideCounts = perWordStates.map(s => (s.outsideNonEmpty || 0) + (s.outsideEmpty || 0));
+      const outsidePosPenalties = perWordStates.map(s => s.outsidePosPenalty || 0);
+      const insertionCounts = perWordStates.map(s => s.insertionCount || 0);
+
+      const anyInsertion = insertionCounts.some(x => x > 0);
+      const anyOutside = outsideCounts.some(x => x > 0);
+      const anyInternal = internalCounts.some(x => x > 0);
+
+      let key;
+      let modeLabel;
+
+      if (!anyOutside && !anyInternal && !anyInsertion) {
+        // exact-like (matra-only) — keep it in EXACT ordering even in typing-mistakes mode
+        modeLabel = "EXACT";
+        if (Q === 1) key = buildRankKeyOneWordExact(md[0], prefixWords, middleWords, suffixWords);
+        else key = buildRankKeyMultiwordExact(md, prefixWords, middleWords, suffixWords);
+      } else if (anyInsertion) {
+        modeLabel = "INSERTION";
+        key = buildRankKeyMultiwordInsertion(insertionCounts, outsideCounts, internalCounts, outsidePosPenalties, tierScores, md, prefixWords, middleWords, suffixWords);
+      } else if (anyOutside) {
+        modeLabel = "OUTSIDE";
+        key = buildRankKeyMultiwordOutside(outsideCounts, internalCounts, outsidePosPenalties, tierScores, md, prefixWords, middleWords, suffixWords);
+      } else {
+        modeLabel = "INTERNAL";
+        if (Q === 1) {
+          key = buildRankKeyOneWordInternal(internalCounts[0], tierScores[0], md[0], prefixWords, middleWords, suffixWords);
+        } else {
+          key = buildRankKeyMultiwordInternal(internalCounts, tierScores, md, prefixWords, middleWords, suffixWords);
+        }
+      }
+
+      const explain = buildExplain(modeLabel, qWordsParsed.map(w => w.raw), candWordsParsed.map(w => w.raw), chosen, prefixWords, middleWords, suffixWords, perWordStates);
+
+      const cand = { key, explain, chosen, perWordStates };
+      if (!best || compareRankKey(cand.key, best.key) < 0) best = cand;
+      return;
+    }
+
+    for (let ci = startCi; ci < C; ci++) {
+      // Fuzzy word match per word
+      const qW = qWordsParsed[qi];
+      const cW = candWordsParsed[ci];
+
+      const isMultiwordQuery = (Q >= 2);
+      // Apply protected prefix rule ONLY to first word of multiword queries (your instruction)
+      let protectedPrefixLen = 0;
+      if (isMultiwordQuery && qi === 0) {
+        protectedPrefixLen = qW.len <= 5 ? 2 : 3; // as per your multiword rule
+      }
+
+      // Outside allowed unless locked by the word2 rule
+      let allowOutside = true;
+      if (enforceWord2OutsideGate && qi === 0 && outsideUsedWord1Locked) allowOutside = false;
+
+      const st = wordFuzzyMatch(qW, cW, {
+        allowOutside,
+        protectedPrefixLen,
+      });
+      if (!st) continue;
+
+      // Apply “word2 outside gate”: if word2 outside > n/2 then lock outside on word1
+      let nextLocked = outsideUsedWord1Locked;
+      if (enforceWord2OutsideGate && qi === 1) {
+        const outside2 = (st.outsideNonEmpty || 0) + (st.outsideEmpty || 0);
+        const n = qW.len;
+        if (outside2 > Math.floor(n / 2)) {
+          nextLocked = true;
+        }
+      }
+
+      rec(qi + 1, ci + 1, chosen.concat(ci), perWordStates.concat(st), nextLocked);
+    }
+  }
+
+  // Try both paths for the word2 gate:
+  // - start unlocked
+  rec(0, 0, [], [], false);
 
   return best;
 }
 
-function postProgress(phase) {
-  self.postMessage({
-    type: "progress",
-    phase,
-    candidates: total,
-    done: received,
-    total
-  });
+function scoreCandidateName(queryWordsParsed, candName, exactOn) {
+  const cWords = splitWords(candName).map(parseWord);
+  if (cWords.length === 0) return null;
+
+  if (exactOn) {
+    const ex = matchNameExact(queryWordsParsed, cWords);
+    if (!ex) return null;
+    return { ...ex, matchMode: "EXACT" };
+  }
+
+  // typing-mistakes mode: exact results included naturally because fuzzy DP can do pure matches;
+  // but we still compute exact first as a fast path.
+  const ex = matchNameExact(queryWordsParsed, cWords);
+  if (ex) return { ...ex, matchMode: "EXACT" };
+
+  const fu = matchNameFuzzy(queryWordsParsed, cWords);
+  if (!fu) return null;
+  return { ...fu, matchMode: "FUZZY" };
 }
 
 /* =====================
-   Worker messaging
+   Worker runtime
 ===================== */
+let STATE = null;
+
+function resetState() {
+  STATE = {
+    query: "",
+    queryWords: [],
+    exactOn: true,
+    scope: "voter",
+    total: 0,
+    done: 0,
+    hits: [],
+  };
+}
+
+resetState();
+
 self.onmessage = (ev) => {
-  const msg = ev.data;
+  const msg = ev.data || {};
+  const type = msg.type;
 
-  try {
-    if (msg.type === "start") {
-      scope = msg.scope || "voter";
-      exactOn = !!msg.exactOn;
+  if (type === "start") {
+    resetState();
+    STATE.query = normName(msg.query || "");
+    STATE.exactOn = !!msg.exactOn;
+    STATE.scope = msg.scope || "voter";
+    STATE.total = msg.total || 0;
+    STATE.done = 0;
 
-      const q = normStrict(msg.query || "");
-      qTokens = tokenizeStrict(q);
+    const qWords = splitWords(STATE.query).map(parseWord);
+    STATE.queryWords = qWords;
 
-      total = Number(msg.total || 0);
-      received = 0;
-      buffer = [];
+    return;
+  }
 
-      postProgress("ranking");
-      return;
-    }
+  if (type === "batch") {
+    const rows = msg.rows || [];
+    for (const row of rows) {
+      const voter = row.voter_name_norm || row["Voter Name"] || "";
+      const rel = row.relative_name_norm || row["Relative Name"] || "";
 
-    if (msg.type === "batch") {
-      const rows = msg.rows || [];
+      let best = null;
+      let bestField = null;
 
-      for (const row of rows) {
-        const best = evaluateRow(row);
-        if (best) {
-          buffer.push({
-            row_id: Number(row.row_id),
-            key: best.key,
-            explain: best.explain,
-            match_field: best.match_field
-          });
-        }
+      if (STATE.scope === "voter" || STATE.scope === "anywhere") {
+        const m = scoreCandidateName(STATE.queryWords, voter, STATE.exactOn);
+        if (m) { best = m; bestField = "voter"; }
+      }
+      if (STATE.scope === "relative" || STATE.scope === "anywhere") {
+        const m = scoreCandidateName(STATE.queryWords, rel, STATE.exactOn);
+        if (m && (!best || compareRankKey(m.key, best.key) < 0)) { best = m; bestField = "relative"; }
       }
 
-      received += rows.length;
-      if (received % 4000 === 0 || received === total) postProgress("ranking");
-      return;
+      if (best) {
+        STATE.hits.push({
+          row_id: row.row_id,
+          key: best.key,
+          explain: best.explain,
+          match_field: bestField,
+        });
+      }
     }
 
-    if (msg.type === "finish") {
-      postProgress("sorting");
-
-      buffer.sort((a, b) => {
-        const c = cmpKey(a.key, b.key);
-        if (c !== 0) return c;
-
-        // deterministic fallback:
-        if (a.match_field !== b.match_field) {
-          if (a.match_field === "voter") return -1;
-          if (b.match_field === "voter") return 1;
-        }
-        return a.row_id - b.row_id;
-      });
-
-      const ranked = buffer.map((x, idx) => ({
-        row_id: x.row_id,
-        rank: idx,
-        key: x.key,
-        explain: x.explain,
-        match_field: x.match_field
-      }));
-
-      self.postMessage({ type: "done", ranked });
-      return;
+    STATE.done += rows.length;
+    // progress ping (cheap)
+    if (STATE.total) {
+      self.postMessage({ type: "progress", done: STATE.done, total: STATE.total, phase: "scoring" });
     }
-  } catch (e) {
-    self.postMessage({ type: "error", message: e?.message || String(e) });
+    return;
+  }
+
+  if (type === "finish") {
+    // sort by lexicographic rankKey
+    STATE.hits.sort((a, b) => compareRankKey(a.key, b.key));
+
+    self.postMessage({
+      type: "done",
+      ranked: STATE.hits,
+    });
+    return;
   }
 };

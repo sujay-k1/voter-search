@@ -1,23 +1,3 @@
-/**
- * netlify/functions/candidates.js
- *
- * Speed-optimized candidate aggregation for blob-encoded row_ids:
- * - Avoids per-row Map increments (very slow for huge lists)
- * - Uses multi-way merge over sorted row_id lists to compute hit_count
- * - Adds in-memory cache for decoded (table,state,ac,key)->row_id array
- *
- * Request (POST JSON):
- * {
- *   district: "dumka",
- *   state: "S27",
- *   ac: 7,
- *   table: "idx_voter_strict" | "idx_voter_exact" | "idx_voter_loose" | "idx_relative_strict" | "idx_relative_exact" | "idx_relative_loose",
- *   keys: ["...","..."]
- * }
- *
- * Response:
- * { ok:true, rows:[{row_id, hit_count, and_hit}, ...] }
- */
 
 const {
   getClient,
@@ -101,15 +81,11 @@ class MinHeap {
   get size() { return this.a.length; }
 }
 
-/**
- * Multi-way merge over sorted arrays to compute counts:
- * Input: lists = [{arr, idx, li}, ...] for non-empty arrays only
- * totalKeys = number of keys requested (including missing keys)
- */
+
 function mergeCounts(lists, totalKeys) {
   const heap = new MinHeap();
 
-  // Push first element of each list
+
   for (let li = 0; li < lists.length; li++) {
     const arr = lists[li].arr;
     if (arr.length) {
@@ -123,17 +99,17 @@ function mergeCounts(lists, totalKeys) {
     const first = heap.pop();
     const v = first.v >>> 0;
 
-    // count how many lists contain this value
+
     let count = 1;
 
-    // advance the list that produced this value
+
     {
       const L = lists[first.li];
       L.idx++;
       if (L.idx < L.arr.length) heap.push({ v: L.arr[L.idx] >>> 0, li: first.li });
     }
 
-    // collect any other lists with the same v
+
     while (heap.peek() && (heap.peek().v >>> 0) === v) {
       const x = heap.pop();
       count++;
@@ -146,7 +122,7 @@ function mergeCounts(lists, totalKeys) {
     out.push({
       row_id: v,
       hit_count: count,
-      and_hit: (count === totalKeys), // will be false if any key missing (because count <= lists.length < totalKeys)
+      and_hit: (count === totalKeys),
     });
   }
 
@@ -174,13 +150,13 @@ exports.handler = async (event) => {
     if (!ALLOWED_TABLES.has(table)) return badRequest("Invalid table");
     if (!keysIn.length) return ok({ rows: [] });
 
-    // De-dupe keys; important for correct hit_count semantics
+
     const keys = Array.from(new Set(keysIn));
     const totalKeys = keys.length;
 
     const client = await getClient(district);
 
-    // Fetch blobs for keys (single query using json_each)
+
     const sql = `
       WITH ks AS (
         SELECT CAST(value AS TEXT) AS key
@@ -198,13 +174,13 @@ exports.handler = async (event) => {
       args: [JSON.stringify(keys), state, ac],
     });
 
-    // Map returned rows by key so we can detect missing keys
+
     const got = new Map();
     for (const row of (rs.rows || [])) {
       got.set(String(row.key ?? row["key"]), row);
     }
 
-    // Decode only the keys that exist; missing keys imply and_hit always false (correct)
+
     const lists = [];
     let decodedTotal = 0;
 
@@ -217,8 +193,7 @@ exports.handler = async (event) => {
       if (!arr) {
         const n = row.n ?? row["n"];
         arr = decodeRowIds(row.row_ids ?? row["row_ids"], n);
-        // Ensure numbers
-        // Assume sorted (highly likely; delta encoding implies monotonic). Do NOT sort (would be too slow).
+
         cacheSet(ck, arr);
       }
 

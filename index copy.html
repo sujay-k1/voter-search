@@ -1,3 +1,4 @@
+
 <!-- index.html (drop-in replacement) -->
 <!doctype html>
 <html lang="hi">
@@ -315,7 +316,7 @@
       background: rgba(255, 210, 225, .70);
       border: 1px solid rgba(180, 50, 95, .35);
       color: rgba(0,0,0,.75);
-      font-weight: 700;
+      font-weight: 900;
       font-size: 13px;
       display:none;
       align-items:center;
@@ -365,7 +366,7 @@
       border-radius: var(--r-999);
       height: 56px;
       padding: 0 26px;
-      font-weight: 600;
+      font-weight: 700;
       font-size: 18px;
       transition: transform .06s ease, opacity .12s ease;
     }
@@ -387,7 +388,7 @@
       align-items:center;
       gap: 12px;
       font-size: 16px;
-      font-weight: 500;
+      font-weight: 700;
       color: #1a1a1a;
       white-space: nowrap;
       user-select:none;
@@ -493,9 +494,10 @@
       flex: 0 0 auto;
       white-space: nowrap;
       color: #1a1a1a;
-      font-weight: 500;
+      font-weight: 700;
       flex-direction: column;
       font-size: small;
+      font-weight: 300;
     }
     .seg{
       display:flex;
@@ -510,7 +512,7 @@
       border: 0;
       background: transparent;
       padding: 10px 16px;
-      font-weight: 500;
+      font-weight: 700;
       font-size: 14px;
       cursor:pointer;
       min-width: 120px;
@@ -541,7 +543,7 @@
       border: 1px solid rgba(0,0,0,.20);
       background: rgba(255,255,255,.55);
       padding: 0 14px;
-      font-weight: 500;
+      font-weight: 800;
       font-size: 14px;
       cursor: pointer;
       display:flex;
@@ -572,7 +574,7 @@
       justify-content:space-between;
       gap: 18px;
       color: #2a2a2a;
-      font-weight: 500;
+      font-weight: 700;
       font-size: 14px;
     }
     .sortWrap{ display:flex; align-items:center; gap: 10px; }
@@ -588,7 +590,6 @@
       min-height: 420px;
     }
     .tableRegion{
-      position: relative;
       flex: 1 1 auto;
       overflow: auto;
       border-radius: 18px;
@@ -596,9 +597,6 @@
       background: #fff;
       box-shadow: var(--shadow);
     }
-
-    /* scroll-to-top FAB (mobile only via media query) */
-    #scrollTopFab{ display:none;}
     table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 14px; }
     th, td { padding: 10px 10px; border-bottom: 1px solid #eee; white-space: nowrap; vertical-align: top; }
     th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; }
@@ -624,7 +622,7 @@
       border: 1px solid rgba(0,0,0,.22);
       background: rgba(255,255,255,.6);
       padding: 0 14px;
-      font-weight: 500;
+      font-weight: 800;
       cursor: pointer;
     }
 
@@ -633,13 +631,13 @@
       margin-left: auto;
     }
 
-    .pager .muted{ color: #4a4a4a; font-weight: 500; }
+    .pager .muted{ color: #4a4a4a; font-weight: 700; }
 
     /* --------- popover base --------- */
     .popover{
       position: absolute;
       top: calc(100% + 8px);
-      right: 0;
+      left: 0;
       min-width: 320px;
       border-radius: 22px;
       background: rgba(245,240,250,.98);
@@ -820,67 +818,20 @@
     }
 
 @media (max-width: 680px){
-  .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible;}
+  .filtersRow{ flex-direction: column; gap: 12px;}
   .seg{justify-content: space-evenly;}
   .clearSearchBtn{position: absolute; right: 0px; z-index: 60; top: calc(-89.9dvh); width: 120px;}
-  .resultsBody{z-index: 40; height: calc(100dvh - 339px); padding: 12px 12px 0px;}
+  .resultsBody{z-index: 40;}
   .pager{z-index: 50; font-size: x-small; flex-wrap: nowrap;}
   .filtersLeft{ justify-content: space-between; width: -webkit-fill-available;}
   .acShell{ min-width: 0;}
   .seg button{ min-width: 0; width: 33.33vw; max-width:none; }
   .scopeWrap{gap: 4px;}
-  .chk{width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
-  .resultsMetaRow{gap: 0px;}
+  .chk{width: -webkit-fill-available; font-size: 13px; font-weight: 600;}
+  .resultsBody{ height: calc(100dvh - 341px); padding: 12px 12px 0px;}
 
-  /* Mobile-only: collapse scope + filters on table scroll */
-  #resultsSection .scopeWrap,
-  #resultsSection .filtersRow{
-   /* overflow: hidden; */
-    max-height: 260px;
-    opacity: 1;
-    transform: translateY(0);
-    transition: max-height 200ms ease, opacity 200ms ease, transform 200ms ease, margin 200ms ease;
-  }
-  #resultsSection.mobileCompact .scopeWrap,
-  #resultsSection.mobileCompact .filtersRow{
-    max-height: 0px;
-    opacity: 0;
-    transform: translateY(-6px);
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    pointer-events: none;
-  }
-  #resultsSection.mobileCompact .resultsTop{ padding-bottom: 6px; }
-
-  /* Scroll-to-top floating action button (shown only when compact) */
-  #scrollTopFab{
-    display:flex;
-    position: fixed;
-    align-items:center;
-    justify-content:center;
-    width: 48px;
-    height: 48px;
-    border-radius: 999px;
-    border: 1px solid rgba(0,0,0,.12);
-    background: rgba(91,74,163,.95);
-    color: #fff;
-    box-shadow: var(--shadow);
-    cursor: pointer;
-    position: absolute;
-    right: 28px;
-    bottom: 102px;
-    z-index: 60;
-    opacity: 0;
-    transform: translateY(8px);
-    pointer-events: none;
-    transition: opacity 200ms ease, transform 200ms ease;
-  }
-  #resultsSection.mobileCompact #scrollTopFab{
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
-  }
 }
+
 
     @media (max-width: 900px){
       .searchRow{ flex-direction:column; gap: 14px; }
@@ -890,7 +841,7 @@
       .tip{ max-width: 520px; }
       .resultsTopInner{ flex-direction:column; align-items:stretch; }
       .resultsPill{ min-width: 0; width: 100%; height: 64px; flex-direction: column; height: 108px; border-radius: 32px; gap: 8px;}
-      .scopeWrap{ margin-left: 0; justify-content:center; flex-direction: column; align-items: flex-start; gap: 4px; font-size: small; font-weight: 300;}
+      .scopeWrap{ margin-left: 0; justify-content:center; flex-direction: column; align-items: flex-start; gap: 0px; font-size: small; font-weight: 300;}
       .seg button{ min-width: 0; width: 33.33vw; max-width: 160px; }
       .resultsBody{ height: calc(100dvh - 330px); padding: 12px 12px 0px;}
       .districtSelWrapBtn{width: -webkit-fill-available;}
@@ -1099,7 +1050,7 @@
           </div>
         </div>
 
-        <label class="chk">
+        <label class="chk" style="font-weight:800;">
           <input type="checkbox" id="exactToggleResults" checked />
           <span data-i18n="include_typing">Include typing mistakes</span>
         </label>
@@ -1121,7 +1072,6 @@
     <div class="resultsBody">
       <div class="tableRegion">
         <div class="results" id="results"></div>
-        <button id="scrollTopFab" type="button" aria-label="Scroll to top" style="position: fixed;"><span  data-i18n="Scroll_to_top">↑</span></button>
       </div>
 
       <div class="pager" id="pager">

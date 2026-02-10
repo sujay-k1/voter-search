@@ -1,22 +1,3 @@
-/**
- * netlify/functions/rows.js
- *
- * Speed-optimized: uses json_each(?) to avoid chunked IN lists.
- * Preserves input order (important for stable paging display).
- * Falls back to chunked IN if json_each is unavailable.
- *
- * Request (POST JSON):
- * {
- *   district: "dumka",
- *   state: "S27",
- *   ac: 7,
- *   kind: "score" | "display" | "age" | "gender_age",
- *   row_ids: [1,2,3]
- * }
- *
- * Response:
- * { ok:true, rows:[{...}, ...] }
- */
 
 const {
   getClient,
