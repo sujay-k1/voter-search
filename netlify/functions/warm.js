@@ -105,6 +105,50 @@ exports.handler = async (event) => {
       "idx_relative_loose",
     ];
 
+    const mode = String(body.mode || "").toLowerCase();
+
+    // LITE warm: avoid per-AC warming (can compete with the first search and slow it down).
+    // Touch each table once for this state so Turso + the function instance are "awake".
+    if (mode === "lite") {
+      steps.push(
+        await timed("voters_limit1_state", async () => {
+          await client.execute({
+            sql: `SELECT 1 AS ok
+                  FROM voters
+                  WHERE "State Code" = ?
+                  LIMIT 1;`,
+            args: [state],
+          });
+        })
+      );
+
+      for (const t of idxTables) {
+        steps.push(
+          await timed(`${t}_limit1_state`, async () => {
+            await client.execute({
+              sql: `SELECT 1 AS ok
+                    FROM ${t}
+                    WHERE "State Code" = ?
+                    LIMIT 1;`,
+              args: [state],
+            });
+          })
+        );
+      }
+
+      const msTotal = Date.now() - t0;
+      console.log(`[warm] mode=lite district=${district} state=${state} total=${msTotal}ms`);
+      return ok({
+        district,
+        state,
+        mode: "lite",
+        ms_total: msTotal,
+        summary: { ok_steps: steps.filter((s) => s.ok).length, total_steps: steps.length },
+        steps,
+      });
+    }
+
+
     // Resolve AC list: prefer caller-provided list (fastest).
     let acs = asAcsArray(body.acs);
 

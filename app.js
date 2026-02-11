@@ -107,6 +107,24 @@ async function callFn(name, payload, opts) {
   return await postJson(fnUrl(name), payload, opts);
 }
 
+// Simple async pool to limit concurrency
+async function runPool(items, concurrency, workerFn) {
+  const out = new Array(items.length);
+  let idx = 0;
+  const n = Math.max(1, Math.min(concurrency || 1, items.length || 1));
+  async function runner() {
+    while (true) {
+      const i = idx++;
+      if (i >= items.length) return;
+      out[i] = await workerFn(items[i], i);
+    }
+  }
+  const ps = [];
+  for (let i = 0; i < n; i++) ps.push(runner());
+  await Promise.all(ps);
+  return out;
+}
+
 const STATE_CODE_DEFAULT = "S27";
 
 // index behavior
@@ -125,6 +143,11 @@ const PAGE_SIZE_MOBILE_OPTIONS = [10, 25, 50, 100];
 // (Still small enough to keep request/response sizes safe.)
 const FETCH_ID_CHUNK = 8000;
 const SCORE_BATCH = 2000;
+
+// Concurrency knobs (tune for speed vs backend load)
+const MAX_PREP_IN_FLIGHT_AC = 4;      // candidates+score-rows fetch pipeline
+const MAX_DISPLAY_IN_FLIGHT_AC = 4;   // display rows fetch during paging
+const MAX_FILTER_IN_FLIGHT_AC = 4;    // relative candidates + gender/age fetch during filtering
 
 // IMPORTANT: Keep data keys in English to match parquet columns.
 // UI labels for these keys are translated via i18n in renderTable().
@@ -173,6 +196,8 @@ let current = {
 // Ranking results use composite key (ac:row_id) so row_id collisions across ACs are safe
 // Now uses `sortKey` (array) from worker — NO arbitrary numeric score.
 let rankedByRelevance = []; // full [{key, ac, row_id, sortKey, explain?, match_field?}]
+let masterRankedAll = []; // last computed full results (AC filter uses this)
+let lastSearchCtx = { districtSlug: "", query: "", scope: "", exactOn: false, searchedACs: new Set() };
 let filteredBase = []; // after filters, in relevance order
 let rankedView = []; // after sort, for paging
 let page = 1;
@@ -1489,12 +1514,10 @@ function formatCell(v) {
   if (typeof v === "bigint") return v.toString();
   return String(v);
 }
-/*
 
 function makeKey(ac, row_id) {
   return `${Number(ac)}:${Number(row_id)}`;
 }
-  */
 
 function isAllACsSelected() {
   return selectedACs.size === 0 || selectedACs.size === districtACsAll.length;
@@ -1694,11 +1717,15 @@ async function preloadDistrictACs(acs, districtLabel) {
     // Warm in background (best-effort). Do not await; do not block UI.
     const districtSlug = slugifyDistrictId(currentDistrictId || "");
     if (districtSlug) {
-      callFn(
-        "warm",
-        { district: districtSlug, state: STATE_CODE_DEFAULT, acs: acs.slice().map(Number) },
-        { timeoutMs: 20000, retries: 0 }
-      ).catch(() => {});
+      // Warm-lite to avoid competing with the first search (full warm can be expensive).
+      // If you ever want full warm again, set mode:"full" and pass acs.
+      setTimeout(() => {
+        callFn(
+          "warm",
+          { district: districtSlug, state: STATE_CODE_DEFAULT, mode: "lite" },
+          { timeoutMs: 12000, retries: 0 }
+        ).catch(() => {});
+      }, 600);
     }
   } finally {
     // Ensure UI is enabled immediately.
@@ -1740,17 +1767,22 @@ function setDistrictById(id) {
   updateDistrictUI();
   updateSelectedAcText();
 
+  // Reset view state
   rankedByRelevance = [];
+  masterRankedAll = [];
+  lastSearchCtx = { districtSlug: "", query: "", scope: "", exactOn: false, searchedACs: new Set() };
+
   filteredBase = [];
   rankedView = [];
   ageMap = null;
+  page = 1;
+
+  // Clear caches (district change => different DB)
   displayCache.clear();
   scoreRowCache.clear();
   genderAgeCache.clear();
   relativeCandidatesCache.clear();
-  scoreRowCache.clear();
-  genderAgeCache.clear();
-  relativeCandidatesCache.clear();
+
   clearFilters();
   closeFiltersPopover();
   closeDistrictPopovers();
@@ -1758,7 +1790,7 @@ function setDistrictById(id) {
   closeSortPopover();
   closePageSizePopover();
 
-  // Keep the call as before, but it no longer blocks UI and no longer calls ac_meta.
+  // Warm-lite in background (does not block UI)
   preloadDistrictACs(districtACsAll.slice(), currentDistrictLabel);
 
   syncSearchButtonState();
@@ -1921,10 +1953,12 @@ async function getCandidatesForQueryForAc(acNo, q, scope, exactOn) {
   return { candidates, metaByRow, strictKeys, exactKeys, looseKeys };
 }
 
+/*
 // ---------- Fetch scoring rows (per AC) ----------
 function makeKey(ac, row_id) {
   return `${Number(ac)}:${Number(row_id)}`;
 }
+*/
 
 async function fetchScoreRowsByIdsForAc(acNo, rowIds) {
   if (!rowIds || !rowIds.length) return [];
@@ -2357,39 +2391,65 @@ async function applyFiltersThenSortThenRender() {
   if (searchScope === SCOPE.VOTER && rankedByRelevance.length) {
     const exactOn = exactOnFromIncludeTyping();
 
-    const byAc = new Map();
-    for (const x of rankedByRelevance) {
-      if (!byAc.has(x.ac)) byAc.set(x.ac, []);
-      byAc.get(x.ac).push(x.row_id);
-    }
+    const hasRel = Boolean(norm(filters.relativeName || ""));
+    const hasGender = filters.gender !== "all";
+    const hasAge = filters.age.mode !== "any";
 
-    const allowedKeys = new Set();
-
-    setStatus(t("status_applying_filters"));
-
-    let acIdx = 0;
-    for (const [ac, rowIds] of byAc.entries()) {
-      acIdx++;
-      setStatus(t("status_applying_filters_ac", { ac, i: acIdx, n: byAc.size }));
-
-      let relSet = null;
-      if (norm(filters.relativeName || "")) {
-        relSet = await computeRowIdSetByRelativeFilterForAc(ac, exactOn);
+    if (hasRel || hasGender || hasAge) {
+      const byAc = new Map();
+      for (const x of rankedByRelevance) {
+        if (!byAc.has(x.ac)) byAc.set(x.ac, []);
+        byAc.get(x.ac).push(x.row_id);
       }
 
-      const gaSet = await computeRowIdSetByGenderAndAgeForAc(ac, rowIds);
+      const entries = Array.from(byAc.entries());
+      const total = entries.length;
+      let done = 0;
 
-      for (const rid of rowIds) {
-        if (relSet && !relSet.has(rid)) continue;
-        if (gaSet && !gaSet.has(rid)) continue;
-        allowedKeys.add(makeKey(ac, rid));
+      setStatus(t("status_applying_filters"));
+
+      const perAcKeeps = await runPool(entries, MAX_FILTER_IN_FLIGHT_AC, async ([ac, rowIds]) => {
+        // Best-effort: if a backend call fails, DO NOT drop rows; keep everything for that AC.
+        let relSet = null;
+        if (hasRel) {
+          try {
+            relSet = await computeRowIdSetByRelativeFilterForAc(ac, exactOn);
+          } catch (e) {
+            console.warn("Relative filter failed for AC", ac, e);
+            relSet = null; // keep all
+          }
+        }
+
+        let gaSet = null;
+        if (hasGender || hasAge) {
+          try {
+            gaSet = await computeRowIdSetByGenderAndAgeForAc(ac, rowIds);
+          } catch (e) {
+            console.warn("Gender/Age filter fetch failed for AC", ac, e);
+            gaSet = null; // keep all
+          }
+        }
+
+        const keep = [];
+        for (const rid of rowIds) {
+          if (relSet && !relSet.has(rid)) continue;
+          if (gaSet && !gaSet.has(rid)) continue;
+          keep.push(rid);
+        }
+
+        done++;
+        setStatus(t("status_applying_filters_ac", { ac, i: done, n: total }));
+        return { ac, keep };
+      });
+
+      const allowedKeys = new Set();
+      for (const item of perAcKeeps || []) {
+        if (!item) continue;
+        const ac = item.ac;
+        for (const rid of item.keep) allowedKeys.add(makeKey(ac, rid));
       }
-    }
 
-    if (allowedKeys.size) {
-      filteredBase = rankedByRelevance.filter((x) => allowedKeys.has(x.key));
-    } else if (norm(filters.relativeName || "") || filters.gender !== "all" || filters.age.mode !== "any") {
-      filteredBase = [];
+      filteredBase = allowedKeys.size ? rankedByRelevance.filter((x) => allowedKeys.has(x.key)) : [];
     }
   }
 
@@ -2409,6 +2469,100 @@ async function applyFiltersThenSortThenRender() {
 }
 
 // ---------- Search ----------
+async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken) {
+  const merged = [];
+  if (!acList || !acList.length) return merged;
+
+  const prepareAc = async (ac) => {
+    setStatus(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac }));
+    const { candidates, metaByRow } = await getCandidatesForQueryForAc(ac, qStrict, searchScope, exactOn);
+    if (!candidates.length) return { ac, rowsWithMeta: [], candidates: 0 };
+
+    setStatus(t("status_stage2", { n: candidates.length, ac }));
+    const rows = await fetchScoreRowsByIdsForAc(ac, candidates);
+    const rowsWithMeta = rows.map((r) => ({ ...r, _meta: metaByRow.get(r.row_id) || null }));
+    return { ac, rowsWithMeta, candidates: candidates.length };
+  };
+
+  let nextIndex = 0;
+  let inFlight = 0;
+  let started = 0;
+  let done = 0;
+
+  const ready = [];
+  let notifyResolve = null;
+  const notify = () => {
+    if (notifyResolve) {
+      const r = notifyResolve;
+      notifyResolve = null;
+      r();
+    }
+  };
+  const waitReady = () => new Promise((res) => (notifyResolve = res));
+
+  const pushReady = (item) => {
+    ready.push(item);
+    notify();
+  };
+
+  const scheduleMore = () => {
+    while (inFlight < MAX_PREP_IN_FLIGHT_AC && nextIndex < acList.length) {
+      const ac = acList[nextIndex++];
+      started++;
+      setStatus(t("status_stage0", { ac, i: started, n: acList.length }));
+
+      inFlight++;
+      prepareAc(ac)
+        .then((val) => pushReady({ ok: true, ac, val }))
+        .catch((err) => pushReady({ ok: false, ac, err }))
+        .finally(() => {
+          inFlight--;
+          scheduleMore();
+          notify();
+        });
+    }
+  };
+
+  scheduleMore();
+
+  while (done < acList.length) {
+    if (myToken !== activeSearchToken) return null; // cancelled
+
+    if (!ready.length) {
+      await waitReady();
+      continue;
+    }
+
+    const settled = ready.shift();
+    done++;
+    setBar(Math.round((done / acList.length) * 100));
+
+    if (!settled || !settled.ok) {
+      console.warn("Skipping AC due to prepare error:", settled?.ac, settled?.err);
+      continue;
+    }
+
+    const { ac, rowsWithMeta } = settled.val;
+    if (rowsWithMeta.length) {
+      setStatus(t("status_stage3", { n: rowsWithMeta.length, ac }));
+      const ranked = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
+      for (const r of ranked) {
+        merged.push({
+          key: makeKey(ac, r.row_id),
+          ac,
+          row_id: r.row_id,
+          sortKey: r.sortKey,
+          explain: DEBUG ? r.explain : "",
+          match_field: DEBUG ? r.match_field : "",
+        });
+      }
+      resultsCountEl.textContent = String(merged.length);
+    }
+  }
+
+  return merged;
+}
+
 async function runSearch() {
   const q = getActiveQueryInput().value || "";
   const qStrict = norm(q);
@@ -2421,10 +2575,6 @@ async function runSearch() {
   filteredBase = [];
   rankedView = [];
   ageMap = null;
-  displayCache.clear();
-  scoreRowCache.clear();
-  genderAgeCache.clear();
-  relativeCandidatesCache.clear();
   page = 1;
 
   pagerEl.style.display = "none";
@@ -2457,81 +2607,21 @@ async function runSearch() {
   showResults();
   resultsCountEl.textContent = "0";
 
-  const merged = [];
-
   // Cancel/ignore older searches.
   const myToken = ++activeSearchToken;
 
-  // Pipeline: fetch candidates+rows concurrently (limited), score sequentially in ONE worker.
-  const MAX_IN_FLIGHT_AC = 2;
+  const districtSlug = slugifyDistrictId(currentDistrictId || "");
+  masterRankedAll = [];
+  lastSearchCtx = { districtSlug, query: qStrict, scope: scopeForWorker, exactOn, searchedACs: new Set() };
 
-  const prepareAc = async (ac) => {
-    setStatus(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac }));
-    const { candidates, metaByRow } = await getCandidatesForQueryForAc(ac, qStrict, searchScope, exactOn);
-    if (!candidates.length) return { ac, rowsWithMeta: [], candidates: 0 };
-
-    setStatus(t("status_stage2", { n: candidates.length, ac }));
-    const rows = await fetchScoreRowsByIdsForAc(ac, candidates);
-    const rowsWithMeta = rows.map((r) => ({ ...r, _meta: metaByRow.get(r.row_id) || null }));
-    return { ac, rowsWithMeta, candidates: candidates.length };
-  };
-
-  const inFlight = new Set();
-  let nextIndex = 0;
-  let doneAcs = 0;
-  let startedAcs = 0;
-
-  const startNext = () => {
-    if (nextIndex >= acList.length) return;
-    const ac = acList[nextIndex++];
-    startedAcs++;
-    setStatus(t("status_stage0", { ac, i: startedAcs, n: acList.length }));
-    const p = prepareAc(ac)
-      .then((val) => ({ ok: true, ac, val, p }))
-      .catch((err) => ({ ok: false, ac, err, p }));
-    inFlight.add(p);
-    p.finally(() => inFlight.delete(p));
-  };
-
-  for (let i = 0; i < Math.min(MAX_IN_FLIGHT_AC, acList.length); i++) startNext();
-
-  while (inFlight.size) {
-    const settled = await Promise.race(inFlight);
-    if (settled && settled.p) inFlight.delete(settled.p);
-    startNext(); // keep pipeline full
-
-    if (myToken !== activeSearchToken) return; // a newer search started
-
-    if (!settled.ok) {
-      console.warn("Skipping AC due to prepare error:", settled.ac, settled.err);
-      doneAcs++;
-      setBar(Math.round((doneAcs / acList.length) * 100));
-      continue;
-    }
-
-    const { ac, rowsWithMeta } = settled.val;
-    if (rowsWithMeta.length) {
-      setStatus(t("status_stage3", { n: rowsWithMeta.length, ac }));
-      const ranked = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
-      for (const r of ranked) {
-        merged.push({
-          key: makeKey(ac, r.row_id),
-          ac,
-          row_id: r.row_id,
-          sortKey: r.sortKey,
-          explain: DEBUG ? r.explain : "",
-          match_field: DEBUG ? r.match_field : "",
-        });
-      }
-      resultsCountEl.textContent = String(merged.length);
-    }
-
-    doneAcs++;
-    setBar(Math.round((doneAcs / acList.length) * 100));
-  }
+  const merged = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
+  if (merged === null) return;
 
   // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
-  rankedByRelevance = merged.sort(cmpRelevance);
+  masterRankedAll = merged.sort(cmpRelevance);
+  lastSearchCtx.searchedACs = new Set(acList);
+
+  rankedByRelevance = masterRankedAll.slice(); // current view = searched ACs
 
   await applyFiltersThenSortThenRender();
   setStatus(t("status_ready_results", { n: rankedView.length }));
@@ -2563,12 +2653,17 @@ async function renderPage() {
   }
 
   if (missingByAc.size) {
-    let idx = 0;
-    for (const [ac, rowIds] of missingByAc.entries()) {
-      idx++;
-      setStatus(t("status_loading_page_rows", { page, ac, i: idx, n: missingByAc.size }));
+    const entries = Array.from(missingByAc.entries());
+    const totalAcs = entries.length;
+    let done = 0;
+
+    await runPool(entries, MAX_DISPLAY_IN_FLIGHT_AC, async ([ac, rowIds]) => {
+      setStatus(t("status_loading_page_rows", { page, ac, i: done + 1, n: totalAcs }));
       await fetchDisplayRowsByIdsForAc(ac, rowIds);
-    }
+      done++;
+      setStatus(t("status_loading_page_rows", { page, ac, i: done, n: totalAcs }));
+      return true;
+    });
   }
 
   const infoMap = new Map(slice.map((x) => [x.key, x]));
@@ -2687,6 +2782,9 @@ function clearAll() {
   current.lastQuery = "";
 
   rankedByRelevance = [];
+  masterRankedAll = [];
+  lastSearchCtx = { districtSlug: "", query: "", scope: "", exactOn: false, searchedACs: new Set() };
+
   filteredBase = [];
   rankedView = [];
   ageMap = null;
@@ -2711,25 +2809,59 @@ let refreshTimer = null;
 
 function refreshOnStateChange(reason) {
   if (refreshTimer) clearTimeout(refreshTimer);
-
   refreshTimer = setTimeout(async () => {
     refreshTimer = null;
 
-    if (reason === "scope" || reason === "exact") {
-      if (hasQueryableState()) await runSearch();
-      return;
+    // AC selection changes should NOT rerun the whole search if we already have results
+    // for the same (district, query, scope, exactOn). We just filter/expand incrementally.
+    if (reason === "acs" && lastSearchCtx && masterRankedAll && masterRankedAll.length) {
+      const qStrict = current.lastQuery || norm(getActiveQueryInput().value || "");
+      const districtSlug = slugifyDistrictId(currentDistrictId || "");
+      const exactOn = exactOnFromIncludeTyping();
+      const scopeForWorker = searchScope;
+
+      if (
+        qStrict &&
+        districtSlug === lastSearchCtx.districtSlug &&
+        qStrict === lastSearchCtx.query &&
+        scopeForWorker === lastSearchCtx.scope &&
+        exactOn === lastSearchCtx.exactOn
+      ) {
+        const targetAcs = getActiveACs();
+        const searched = lastSearchCtx.searchedACs || new Set();
+        const missing = targetAcs.filter((ac) => !searched.has(ac));
+
+        // If we need to expand to new ACs, do it incrementally (no rework for already-scored ACs)
+        if (missing.length) {
+          showResults();
+          const myToken = ++activeSearchToken;
+
+          setBar(0);
+          setStatus(t("status_stage0", { ac: missing[0] || 0, i: 1, n: missing.length }));
+
+          const merged = await computeMergedForAcs(missing, qStrict, exactOn, scopeForWorker, myToken);
+          if (merged !== null && merged.length) {
+            masterRankedAll = masterRankedAll.concat(merged).sort(cmpRelevance);
+            for (const ac of missing) searched.add(ac);
+            lastSearchCtx.searchedACs = searched;
+          }
+        }
+
+        // Now just filter the already-ranked master list by selected ACs.
+        const targetSet = new Set(getActiveACs());
+        rankedByRelevance = masterRankedAll.filter((x) => targetSet.has(x.ac));
+
+        await applyFiltersThenSortThenRender();
+        setStatus(t("status_ready_results", { n: rankedView.length }));
+        return;
+      }
     }
 
-    if (reason === "filters" || reason === "sort") {
-      if (rankedByRelevance.length) await applyFiltersThenSortThenRender();
-      return;
+    // Default behavior for query/scope changes: rerun
+    if (current.lastQuery) {
+      await runSearch();
     }
-
-    if (reason === "district" || reason === "acs") {
-      if (hasQueryableState()) await runSearch();
-      return;
-    }
-  }, 90);
+  }, 250);
 }
 
 // ---------- Popover helpers ----------
