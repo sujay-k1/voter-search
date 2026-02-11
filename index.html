@@ -412,6 +412,70 @@
       margin-top: 6px;
       min-height: 18px;
     }
+.metaLine{
+  color: rgba(0,0,0,.58);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  margin-top: 2px;
+  min-height: 16px;
+}
+
+/* ---- minimal progress (search ETA) ---- */
+.progressPanel{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap: 8px;
+  padding: 10px 0 2px;
+}
+.progressRing{
+  width: 58px;
+  height: 58px;
+  position: relative;
+}
+.ringSvg{
+  width: 58px;
+  height: 58px;
+  display:block;
+  transform: rotate(-90deg);
+}
+.ringBg{
+  fill:none;
+  stroke: rgba(0,0,0,.12);
+  stroke-width: 3.4;
+}
+.ringFg{
+  fill:none;
+  stroke: var(--accent);
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 220ms ease;
+}
+.ringCenter{
+  position:absolute;
+  inset: 0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 900;
+  font-size: 14px;
+  color: #2a2a2a;
+  pointer-events:none;
+}
+.progressStage{
+  font-weight: 900;
+  font-size: 14px;
+  color: #2a2a2a;
+  text-align:center;
+}
+.progressSub{
+  font-weight: 700;
+  font-size: 12px;
+  color: rgba(0,0,0,.55);
+  text-align:center;
+}
+
 
     /* ---- footer links ---- */
     .footerLinks{
@@ -1024,6 +1088,27 @@
       </div>
     </div>
 
+<div class="statusWrap" id="statusWrapLanding">
+  <div class="progressPanel" id="progressPanelLanding" style="display:none;" aria-live="polite">
+    <div class="progressRing" aria-hidden="true">
+      <svg class="ringSvg" viewBox="0 0 36 36">
+        <path class="ringBg" d="M18 2.0845
+          a 15.9155 15.9155 0 0 1 0 31.831
+          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+        <path class="ringFg" id="progressRingLanding" stroke-dasharray="0, 100" d="M18 2.0845
+          a 15.9155 15.9155 0 0 1 0 31.831
+          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+      </svg>
+      <div class="ringCenter"><span id="progressPctLanding">0%</span></div>
+    </div>
+    <div class="progressStage" id="progressStageLanding"></div>
+    <div class="progressSub" id="progressSubLanding"></div>
+  </div>
+
+  <div class="statusLine" id="statusLanding"></div>
+  <div class="metaLine" id="metaLanding"></div>
+</div>
+
     <div class="footerLinks">
       <a href="#" id="helpLink"><span class="ic"></span> <span data-i18n="need_help">Need help?</span></a>
       <a href="#" id="feedbackLink"><span class="ic"></span> <span data-i18n="feedback">Have a suggestion? Leave feedback!</span></a>
@@ -1124,6 +1209,27 @@
         </div>
       </div>
     </div>
+
+<div class="statusWrap" id="statusWrapResults">
+  <div class="progressPanel" id="progressPanelResults" style="display:none;" aria-live="polite">
+    <div class="progressRing" aria-hidden="true">
+      <svg class="ringSvg" viewBox="0 0 36 36">
+        <path class="ringBg" d="M18 2.0845
+          a 15.9155 15.9155 0 0 1 0 31.831
+          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+        <path class="ringFg" id="progressRingResults" stroke-dasharray="0, 100" d="M18 2.0845
+          a 15.9155 15.9155 0 0 1 0 31.831
+          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+      </svg>
+      <div class="ringCenter"><span id="progressPctResults">0%</span></div>
+    </div>
+    <div class="progressStage" id="progressStageResults"></div>
+    <div class="progressSub" id="progressSubResults"></div>
+  </div>
+
+  <div class="statusLine" id="statusResults"></div>
+  <div class="metaLine" id="metaResults"></div>
+</div>
 
     <div class="resultsBody">
       <div class="tableRegion">

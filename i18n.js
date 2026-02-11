@@ -111,6 +111,13 @@ export const I18N = {
     status_loading_district_ac: "{district} लोड हो रहा है… निर्वाचन क्षेत्र {ac} ({i}/{n})",
     status_ready_district_loaded: "तैयार • {district} लोड हो गया ({n} निर्वाचन क्षेत्र)",
 
+    progress_stage_candidates: "Matches खोज रहे हैं…",
+    progress_stage_rows: "Details ला रहे हैं…",
+    progress_stage_rank: "Ranking हो रहा है…",
+    progress_stage_finalize: "Finalizing…",
+    progress_sub: "{done}/{total} • ETA {eta}",
+
+
     status_stage0: "स्टेज 0: निर्वाचन क्षेत्र {ac} लोड हो रहा है ({i}/{n})…",
     status_stage1_exact: "स्टेज 1: कैंडिडेट (निर्वाचन क्षेत्र {ac}) • strict ∪ exact…",
     status_stage1_loose: "स्टेज 1: कैंडिडेट (निर्वाचन क्षेत्र {ac}) • strict ∪ exact ∪ loose…",
@@ -243,6 +250,13 @@ export const I18N = {
     status_loading_district_ac: "{district} load ho raha hai… AC {ac} ({i}/{n})",
     status_ready_district_loaded: "Ready • {district} loaded ({n} ACs)",
 
+    progress_stage_candidates: "Finding matches…",
+    progress_stage_rows: "Loading details…",
+    progress_stage_rank: "Ranking…",
+    progress_stage_finalize: "Finalizing…",
+    progress_sub: "{done}/{total} • ETA {eta}",
+
+
     status_stage0: "Stage 0: AC {ac} load ho raha hai ({i}/{n})…",
     status_stage1_exact: "Stage 1: candidates (AC {ac}) • strict ∪ exact…",
     status_stage1_loose: "Stage 1: candidates (AC {ac}) • strict ∪ exact ∪ loose…",
@@ -372,6 +386,13 @@ export const I18N = {
     status_loading_district: "Loading {district}… ({n} ACs)",
     status_loading_district_ac: "Loading {district}… AC {ac} ({i}/{n})",
     status_ready_district_loaded: "Ready • {district} loaded ({n} ACs)",
+
+    progress_stage_candidates: "Finding matches…",
+    progress_stage_rows: "Loading details…",
+    progress_stage_rank: "Ranking…",
+    progress_stage_finalize: "Finalizing…",
+    progress_sub: "{done}/{total} • ETA {eta}",
+
 
     status_stage0: "Stage 0: Loading AC {ac} ({i}/{n})…",
     status_stage1_exact: "Stage 1: candidate gen (AC {ac}) • strict ∪ exact…",
