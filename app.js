@@ -1105,17 +1105,21 @@ function setStatus(msg) {
 
 
 // Global progress context (set during a search), so worker progress can show ETA too.
+// Global progress context (set during a search), so worker progress can show ETA too.
 let progressCtx = null;
 
 function withGlobalProgress(base) {
   if (!progressCtx) return base;
+
   const totalAcs = progressCtx.totalAcs || 0;
   const processed = progressCtx.processed || 0;
   const prepared = progressCtx.prepared || 0;
   const tStart = progressCtx.tStart || 0;
 
   const elapsed = performance.now() - tStart;
-  const eta = processed > 0 ? ((elapsed / processed) * (totalAcs - processed)) : NaN;
+  const eta = processed > 0
+    ? ((elapsed / processed) * (totalAcs - processed))
+    : NaN;
 
   const fmtETA = (ms) => {
     if (!Number.isFinite(ms) || ms <= 0) return "";
@@ -1127,31 +1131,103 @@ function withGlobalProgress(base) {
 
   const parts = [`${processed}/${totalAcs} done`];
   if (prepared !== processed) parts.push(`${prepared}/${totalAcs} prepared`);
+
   const etaTxt = fmtETA(eta);
   if (etaTxt) parts.push(`ETA ~${etaTxt}`);
 
   return `${base} • ${parts.join(" • ")}`;
 }
 
-function setBar(_pct) {}
+// ===== PROGRESS BAR CONTROL =====
+
+function setBar(pct) {
+  if (!progressCtx) return;
+
+  pct = Math.max(0, Math.min(100, pct || 0));
+  const dash = `${pct}, 100`;
+
+  // Update SVG rings
+  if (progressRingLanding) {
+    progressRingLanding.setAttribute("stroke-dasharray", dash);
+  }
+  if (progressRingResults) {
+    progressRingResults.setAttribute("stroke-dasharray", dash);
+  }
+
+  // Update percentage text
+  if (progressPctLanding) {
+    progressPctLanding.textContent = `${Math.round(pct)}%`;
+  }
+  if (progressPctResults) {
+    progressPctResults.textContent = `${Math.round(pct)}%`;
+  }
+
+  // Auto-hide when complete
+  if (pct >= 100) {
+    hideLoader();
+    progressCtx = null;
+  }
+}
+
+function showLoader() {
+  if (progressPanelLanding)
+    progressPanelLanding.style.display = "flex";
+
+  if (progressPanelResults)
+    progressPanelResults.style.display = "flex";
+
+  setBar(0);
+}
+
+function hideLoader() {
+  if (progressPanelLanding)
+    progressPanelLanding.style.display = "none";
+
+  if (progressPanelResults)
+    progressPanelResults.style.display = "none";
+
+  // Reset ring
+  if (progressRingLanding)
+    progressRingLanding.setAttribute("stroke-dasharray", "0, 100");
+
+  if (progressRingResults)
+    progressRingResults.setAttribute("stroke-dasharray", "0, 100");
+
+  if (progressPctLanding)
+    progressPctLanding.textContent = "0%";
+
+  if (progressPctResults)
+    progressPctResults.textContent = "0%";
+}
 
 function setMeta(msg) {
   if (metaLanding) metaLanding.textContent = msg ?? "";
   if (metaResults) metaResults.textContent = msg ?? "";
 }
 
+// ===== VIEW SWITCHING =====
+
 function showLanding() {
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
-  // Ensure results UI is restored when user returns.
+
+  // Always ensure loader is hidden when returning
+  hideLoader();
+
   resetMobileTableCompactUI();
 }
+
 function showResults() {
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
-  // Sync compact UI state (in case user navigates back to results).
-  if (tableRegion) setMobileTableCompact(tableRegion.scrollTop > 8);
+
+  // Ensure loader is hidden once results are visible
+  hideLoader();
+
+  if (tableRegion)
+    setMobileTableCompact(tableRegion.scrollTop > 8);
 }
+
 function isResultsVisible() {
   return window.getComputedStyle(resultsSection).display !== "none";
 }
