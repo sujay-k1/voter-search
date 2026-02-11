@@ -1,3 +1,9 @@
+/**
+ * netlify/functions/rows.js
+ *
+ * Fetch row data from voters table by row_id list.
+ * Optimized so "score" requests return ONLY the columns needed by worker.js.
+ */
 
 const {
   getClient,
@@ -31,9 +37,11 @@ function quoteIdent(name) {
 async function queryChunkedIn(client, { state, ac, rowIds, sqlCols }) {
   const CHUNK = 900;
   const rows = [];
+
   for (let i = 0; i < rowIds.length; i += CHUNK) {
     const chunk = rowIds.slice(i, i + CHUNK);
     const ph = chunk.map(() => "?").join(",");
+
     const sql = `
       SELECT ${sqlCols}
       FROM voters v
@@ -41,6 +49,7 @@ async function queryChunkedIn(client, { state, ac, rowIds, sqlCols }) {
         AND v."AC No" = ?
         AND v.row_id IN (${ph});
     `;
+
     const args = [state, ac, ...chunk];
     const rs = await client.execute({ sql, args });
     if (rs.rows && rs.rows.length) rows.push(...rs.rows);
@@ -106,19 +115,15 @@ exports.handler = async (event) => {
     let sqlCols = "";
 
     if (kind === "score") {
+      // Minimal payload for worker.js ranking.
+      // worker.js reads: row.voter_name_norm / row.relative_name_norm.
       sqlCols = [
         "v.row_id AS row_id",
-        "v.voter_name_raw AS voter_name_raw",
-        "v.relative_name_raw AS relative_name_raw",
         "v.voter_name_norm AS voter_name_norm",
         "v.relative_name_norm AS relative_name_norm",
-        `${quoteIdent("Serial No")} AS serial_no`,
       ].join(", ");
     } else if (kind === "age") {
-      sqlCols = [
-        "v.row_id AS row_id",
-        `${quoteIdent("Age")} AS Age`,
-      ].join(", ");
+      sqlCols = ["v.row_id AS row_id", `${quoteIdent("Age")} AS Age`].join(", ");
     } else if (kind === "gender_age") {
       sqlCols = [
         "v.row_id AS row_id",

@@ -2,24 +2,26 @@
  * netlify/functions/_turso.js
  * Shared helpers for Turso (libSQL) access.
  *
- * Env vars required in Netlify:
- *   TURSO_TOKEN_A, TURSO_TOKEN_B, TURSO_TOKEN_C
+ * IMPORTANT:
+ * - All district DBs are in a single Turso account (token C).
+ * - We DO NOT hard-restrict district slugs via a mapping anymore.
+ *   If the DB exists, the functions should work.
  *
- * District -> account mapping is hard-coded (lossless to your stated distribution).
+ * Required env vars in Netlify:
+ *   TURSO_TOKEN_C  (or TURSO_TOKEN)
+ *
+ * Optional env vars:
+ *   TURSO_USER        (default: sujay-k3)
+ *   TURSO_URL_SUFFIX  (default: aws-ap-south-1.turso.io)
+ *   TURSO_DB_PREFIX   (default: s27-)
  */
 
-
-const DISTRICTS_A = new Set([
-  "chatra","hazaribagh","deoghar","jamtara","dumka","kodarma","pakur","ramgarh","giridih","sahebganj","godda"
-]);
-
-const DISTRICTS_B = new Set([
-  "bokaro","khunti","dhanbad","ranchi","east-singhbhum","saraikela-kharswan","gumla","west-singhbhum"
-]);
-
-const DISTRICTS_C = new Set([
-  "garhwa","lohardaga","simdega","latehar","palamu"
-]);
+let _libsqlMod = null;
+async function getLibsql() {
+  if (_libsqlMod) return _libsqlMod;
+  _libsqlMod = await import("@libsql/client");
+  return _libsqlMod;
+}
 
 function slugifyDistrictId(id) {
   return String(id ?? "")
@@ -35,27 +37,25 @@ function resolveAccount(districtIdOrSlug) {
   const slug = slugifyDistrictId(districtIdOrSlug);
   if (!slug) throw new Error("Missing district");
 
-  if (DISTRICTS_A.has(slug)) return { slug, account: "A", user: "sujay-k3", token: process.env.TURSO_TOKEN_C };
-  if (DISTRICTS_B.has(slug)) return { slug, account: "B", user: "sujay-k3", token: process.env.TURSO_TOKEN_C };
-  if (DISTRICTS_C.has(slug)) return { slug, account: "C", user: "sujay-k3", token: process.env.TURSO_TOKEN_C };
+  // Single account mode.
+  const token = process.env.TURSO_TOKEN_C || process.env.TURSO_TOKEN;
+  const user = process.env.TURSO_USER || "sujay-k3";
 
-  throw new Error(`Unknown district slug: ${slug}`);
-}
-
-let _libsqlMod = null;
-async function getLibsql() {
-  if (_libsqlMod) return _libsqlMod;
-  _libsqlMod = await import("@libsql/client");
-  return _libsqlMod;
+  return { slug, account: "C", user, token };
 }
 
 const CLIENT_CACHE = new Map();
 
 async function getClient(districtIdOrSlug) {
   const { slug, account, user, token } = resolveAccount(districtIdOrSlug);
-  if (!token) throw new Error(`Missing TURSO_TOKEN_${account} in Netlify env vars`);
+  if (!token) throw new Error(`Missing TURSO_TOKEN_${account} (or TURSO_TOKEN) in Netlify env vars`);
 
-  const url = `libsql://s27-${slug}-${user}.aws-ap-south-1.turso.io`;
+  const suffix = process.env.TURSO_URL_SUFFIX || "aws-ap-south-1.turso.io";
+  const prefix = process.env.TURSO_DB_PREFIX || "s27-";
+
+  // DB naming convention: <prefix><district-slug>-<user>.<suffix>
+  // Example: libsql://s27-dumka-sujay-k3.aws-ap-south-1.turso.io
+  const url = `libsql://${prefix}${slug}-${user}.${suffix}`;
   const cacheKey = `${account}:${slug}`;
 
   if (CLIENT_CACHE.has(cacheKey)) return CLIENT_CACHE.get(cacheKey);
@@ -81,7 +81,7 @@ function json(statusCode, obj) {
 }
 
 function ok(obj) {
-  return json(200, { ok: true, ...obj });
+  return json(200, { ok: true, ...(obj ?? {}) });
 }
 
 function badRequest(msg) {
@@ -113,305 +113,34 @@ function asString(x, fallback = "") {
 
 function toBufferMaybe(x) {
   if (!x) return null;
+
+  // libsql sometimes returns Uint8Array/ArrayBuffer for BLOB.
   if (Buffer.isBuffer(x)) return x;
   if (x instanceof Uint8Array) return Buffer.from(x);
   if (x instanceof ArrayBuffer) return Buffer.from(new Uint8Array(x));
-  return Buffer.from(x);
-}
 
-// Heuristic decoder for row_ids BLOB.
-// Supports: packed uint32 LE, packed uint64 LE, varint (LEB128), and varint-delta (cumsum).
-function decodeRowIds(blob, nHint) {
-  const buf = toBufferMaybe(blob);
-  if (!buf || !buf.length) return [];
-
-  const len = buf.length;
-  const n = asInt(nHint, null);
-
-  function decodeU32() {
-    const out = [];
-    for (let i = 0; i + 4 <= len; i += 4) out.push(buf.readUInt32LE(i));
-    return out;
-  }
-
-  function decodeU64() {
-    const out = [];
-    for (let i = 0; i + 8 <= len; i += 8) {
-      const v = buf.readBigUInt64LE(i);
-      const num = Number(v);
-      out.push(Number.isFinite(num) ? num : 0);
+  // Defensive: if a driver ever returns base64 string for BLOB.
+  if (typeof x === "string") {
+    // Try base64 first. If it's not base64, Buffer will still create bytes,
+    // but decodeRowIds will then fail gracefully (empty/garbage => no candidates).
+    try {
+      return Buffer.from(x, "base64");
+    } catch {
+      try {
+        return Buffer.from(x);
+      } catch {
+        return null;
+      }
     }
-    return out;
   }
 
-  if (n && len === n * 4) return decodeU32();
-  if (n && len === n * 8) return decodeU64();
-
-  if (len % 4 === 0 && (!n || len / 4 === n)) return decodeU32();
-  if (len % 8 === 0 && (!n || len / 8 === n)) return decodeU64();
-
-  // Varint (unsigned LEB128)
-  const raw = [];
-  let i = 0;
-  while (i < len) {
-    let res = 0;
-    let shift = 0;
-    while (true) {
-      if (i >= len) break;
-      const b = buf[i++];
-      res |= (b & 0x7f) << shift;
-      if ((b & 0x80) === 0) break;
-      shift += 7;
-      if (shift > 35) break;
-    }
-    raw.push(res >>> 0);
-  }
-
-  const directOk = !n || raw.length === n;
-
-  const delta = [];
-  let acc = 0;
-  for (const d of raw) {
-    acc += d;
-    delta.push(acc >>> 0);
-  }
-  const deltaOk = !n || delta.length === n;
-
-  if (directOk && !deltaOk) return raw;
-  if (!directOk && deltaOk) return delta;
-
-  const maxDirect = raw.reduce((m, v) => (v > m ? v : m), 0);
-  const maxDelta = delta.reduce((m, v) => (v > m ? v : m), 0);
-
-  if (maxDirect < 5000 && maxDelta > 5000) return delta;
-
-  return raw;
-}
-
-module.exports = {
-  getClient,
-  ok,
-  badRequest,
-  serverError,
-  readJsonBody,
-  asInt,
-  asString,
-  decodeRowIds,
-};
-
-
-
-/**
- * netlify/functions/_turso.js
- * Shared helpers for Turso (libSQL) access.
- *
- * PRODUCTION (Turso) env vars (set in Netlify site settings):
- *   TURSO_TOKEN_A, TURSO_TOKEN_B, TURSO_TOKEN_C
- *
- * LOCAL DEV (SQLite files) env vars (recommended in a local .env):
- *   USE_LOCAL_DB=1                        (optional; NETLIFY_DEV=true also triggers local mode)
- *   LOCAL_DB_DIR_A=./out_district_dbs/turso-a
- *   LOCAL_DB_DIR_B=./out_district_dbs/turso-b
- *   LOCAL_DB_DIR_C=./out_district_dbs/turso-c
- *
- * Local file naming convention assumed:
- *   <LOCAL_DB_DIR_?>/s27-<district-slug>.sqlite
- *
- * District -> account mapping is hard-coded (lossless to your stated distribution).
- */
-
-/**
-
-const fs = require("node:fs");
-const path = require("node:path");
-
-const DISTRICTS_A = new Set([
-  "chatra",
-  "hazaribagh",
-  "deoghar",
-  "jamtara",
-  "dumka",
-  "kodarma",
-  "pakur",
-  "ramgarh",
-  "giridih",
-  "sahebganj",
-  "godda",
-]);
-
-const DISTRICTS_B = new Set([
-  "bokaro",
-  "khunti",
-  "dhanbad",
-  "ranchi",
-  "east-singhbhum",
-  "saraikela-kharswan",
-  "gumla",
-  "west-singhbhum",
-]);
-
-const DISTRICTS_C = new Set([
-  "garhwa",
-  "lohardaga",
-  "simdega",
-  "latehar",
-  "palamu",
-]);
-
-function slugifyDistrictId(id) {
-  return String(id ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function resolveAccount(districtIdOrSlug) {
-  const slug = slugifyDistrictId(districtIdOrSlug);
-  if (!slug) throw new Error("Missing district");
-
-  if (DISTRICTS_A.has(slug)) return { slug, account: "A", user: "sujay-k3", token: process.env.TURSO_TOKEN_A };
-  if (DISTRICTS_B.has(slug)) return { slug, account: "B", user: "sujay-k3", token: process.env.TURSO_TOKEN_B };
-  if (DISTRICTS_C.has(slug)) return { slug, account: "C", user: "sujay-k3", token: process.env.TURSO_TOKEN_C };
-
-  throw new Error(`Unknown district slug: ${slug}`);
-}
-
-function isLocalMode() {
-  // netlify dev sets NETLIFY_DEV=true
-  if (String(process.env.NETLIFY_DEV || "").toLowerCase() === "true") return true;
-  // allow manual override
-  if (String(process.env.USE_LOCAL_DB || "") === "1") return true;
-  if (String(process.env.USE_LOCAL_DB || "").toLowerCase() === "true") return true;
-  return false;
-}
-
-function localDirForAccount(account) {
-  if (account === "A") return process.env.LOCAL_DB_DIR_A || "./out_district_dbs/turso-a";
-  if (account === "B") return process.env.LOCAL_DB_DIR_B || "./out_district_dbs/turso-b";
-  if (account === "C") return process.env.LOCAL_DB_DIR_C || "./out_district_dbs/turso-c";
-  return null;
-}
-
-function toLibsqlFileUrl(absPath) {
-  // Turso/libsql uses a "file:" URL scheme.
-  // On Windows, convert backslashes and ensure there's a leading slash.
-  let p = String(absPath);
-  if (process.platform === "win32") p = p.replace(/\\/g, "/");
-  if (!p.startsWith("/")) p = `/${p}`;
-  return `file:${p}`;
-}
-
-function resolveLocalDbPath({ account, slug }) {
-  const dir = localDirForAccount(account);
-  if (!dir) throw new Error(`Missing LOCAL_DB_DIR_${account}`);
-
-  const absDir = path.isAbsolute(dir) ? dir : path.resolve(process.cwd(), dir);
-  const file = `s27-${slug}.sqlite`;
-  const absPath = path.join(absDir, file);
-
-  if (!fs.existsSync(absPath)) {
-    throw new Error(
-      `Local DB not found for district '${slug}' (account ${account}). Expected file: ${absPath}`
-    );
-  }
-
-  return absPath;
-}
-
-let _libsqlMod = null;
-async function getLibsql() {
-  if (_libsqlMod) return _libsqlMod;
-  _libsqlMod = await import("@libsql/client");
-  return _libsqlMod;
-}
-
-const CLIENT_CACHE = new Map();
-
-async function getClient(districtIdOrSlug) {
-  const { slug, account, user, token } = resolveAccount(districtIdOrSlug);
-
-  const local = isLocalMode();
-  const cacheKey = `${local ? "LOCAL" : "REMOTE"}:${account}:${slug}`;
-  if (CLIENT_CACHE.has(cacheKey)) return CLIENT_CACHE.get(cacheKey);
-
-  const { createClient } = await getLibsql();
-
-  if (local) {
-    const absPath = resolveLocalDbPath({ account, slug });
-    const url = toLibsqlFileUrl(absPath);
-
-    const client = createClient({ url });
-    CLIENT_CACHE.set(cacheKey, client);
-
-    console.log(`[db] LOCAL account=${account} district=${slug} file=${absPath}`);
-    return client;
-  }
-
-  if (!token) throw new Error(`Missing TURSO_TOKEN_${account} in Netlify env vars`);
-
-  const url = `libsql://s27-${slug}-${user}.aws-ap-south-1.turso.io`;
-  const client = createClient({ url, authToken: token });
-  CLIENT_CACHE.set(cacheKey, client);
-
-  console.log(`[db] TURSO account=${account} district=${slug} url=${url}`);
-  return client;
-}
-
-function json(statusCode, obj) {
-  return {
-    statusCode,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "content-type",
-      "access-control-allow-methods": "POST,OPTIONS",
-    },
-    body: JSON.stringify(obj ?? {}),
-  };
-}
-
-function ok(obj) {
-  return json(200, { ok: true, ...obj });
-}
-
-function badRequest(msg) {
-  return json(400, { ok: false, error: String(msg || "Bad Request") });
-}
-
-function serverError(err) {
-  const msg = err && err.message ? err.message : String(err || "Server Error");
-  return json(500, { ok: false, error: msg });
-}
-
-async function readJsonBody(event) {
   try {
-    const raw = event.body || "";
-    return raw ? JSON.parse(raw) : {};
+    return Buffer.from(x);
   } catch {
     return null;
   }
 }
 
-function asInt(x, fallback = null) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function asString(x, fallback = "") {
-  return x === null || x === undefined ? fallback : String(x);
-}
-
-function toBufferMaybe(x) {
-  if (!x) return null;
-  if (Buffer.isBuffer(x)) return x;
-  if (x instanceof Uint8Array) return Buffer.from(x);
-  if (x instanceof ArrayBuffer) return Buffer.from(new Uint8Array(x));
-  return Buffer.from(x);
-}
-
 // Heuristic decoder for row_ids BLOB.
 // Supports: packed uint32 LE, packed uint64 LE, varint (LEB128), and varint-delta (cumsum).
 function decodeRowIds(blob, nHint) {
@@ -437,9 +166,11 @@ function decodeRowIds(blob, nHint) {
     return out;
   }
 
+  // Fast paths when n is known.
   if (n && len === n * 4) return decodeU32();
   if (n && len === n * 8) return decodeU64();
 
+  // Heuristic fixed-width.
   if (len % 4 === 0 && (!n || len / 4 === n)) return decodeU32();
   if (len % 8 === 0 && (!n || len / 8 === n)) return decodeU64();
 
@@ -462,6 +193,7 @@ function decodeRowIds(blob, nHint) {
 
   const directOk = !n || raw.length === n;
 
+  // Varint-delta
   const delta = [];
   let acc = 0;
   for (const d of raw) {
@@ -473,6 +205,7 @@ function decodeRowIds(blob, nHint) {
   if (directOk && !deltaOk) return raw;
   if (!directOk && deltaOk) return delta;
 
+  // If both plausible, choose the one that looks like increasing ids.
   const maxDirect = raw.reduce((m, v) => (v > m ? v : m), 0);
   const maxDelta = delta.reduce((m, v) => (v > m ? v : m), 0);
 
@@ -490,298 +223,5 @@ module.exports = {
   asInt,
   asString,
   decodeRowIds,
+  slugifyDistrictId,
 };
-*/
-
-/**
- * netlify/functions/_turso.js
- * Shared helpers for Turso (libSQL) access.
- *
- * PRODUCTION (Turso) env vars (set in Netlify site settings):
- *   TURSO_TOKEN_A, TURSO_TOKEN_B, TURSO_TOKEN_C
- *
- * LOCAL DEV (SQLite files) env vars (recommended in a local .env):
- *   USE_LOCAL_DB=1                        (optional; NETLIFY_DEV=true also triggers local mode)
- *   LOCAL_DB_DIR_A=./out_district_dbs/turso-a
- *   LOCAL_DB_DIR_B=./out_district_dbs/turso-b
- *   LOCAL_DB_DIR_C=./out_district_dbs/turso-c
- *
- * Local file naming convention assumed:
- *   <LOCAL_DB_DIR_?>/s27-<district-slug>.sqlite
- *
- * District -> account mapping is hard-coded (lossless to your stated distribution).
- */
-
-/**
-
-const fs = require("node:fs");
-const path = require("node:path");
-
-const DISTRICTS_A = new Set([
-  "chatra",
-  "hazaribagh",
-  "deoghar",
-  "jamtara",
-  "dumka",
-  "kodarma",
-  "pakur",
-  "ramgarh",
-  "giridih",
-  "sahebganj",
-  "godda",
-]);
-
-const DISTRICTS_B = new Set([
-  "bokaro",
-  "khunti",
-  "dhanbad",
-  "ranchi",
-  "east-singhbhum",
-  "saraikela-kharswan",
-  "gumla",
-  "west-singhbhum",
-]);
-
-const DISTRICTS_C = new Set([
-  "garhwa",
-  "lohardaga",
-  "simdega",
-  "latehar",
-  "palamu",
-]);
-
-function slugifyDistrictId(id) {
-  return String(id ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function resolveAccount(districtIdOrSlug) {
-  const slug = slugifyDistrictId(districtIdOrSlug);
-  if (!slug) throw new Error("Missing district");
-
-  if (DISTRICTS_A.has(slug)) return { slug, account: "A", user: "sujay-k1", token: process.env.TURSO_TOKEN_A };
-  if (DISTRICTS_B.has(slug)) return { slug, account: "B", user: "sujay-k2", token: process.env.TURSO_TOKEN_B };
-  if (DISTRICTS_C.has(slug)) return { slug, account: "C", user: "sujay-k3", token: process.env.TURSO_TOKEN_C };
-
-  throw new Error(`Unknown district slug: ${slug}`);
-}
-
-function isLocalMode() {
-  // netlify dev sets NETLIFY_DEV=true
-  if (String(process.env.NETLIFY_DEV || "").toLowerCase() === "true") return true;
-  // allow manual override
-  if (String(process.env.USE_LOCAL_DB || "") === "1") return true;
-  if (String(process.env.USE_LOCAL_DB || "").toLowerCase() === "true") return true;
-  return false;
-}
-
-function localDirForAccount(account) {
-  if (account === "A") return process.env.LOCAL_DB_DIR_A || "./out_district_dbs/turso-a";
-  if (account === "B") return process.env.LOCAL_DB_DIR_B || "./out_district_dbs/turso-b";
-  if (account === "C") return process.env.LOCAL_DB_DIR_C || "./out_district_dbs/turso-c";
-  return null;
-}
-
-function toLibsqlFileUrl(absPath) {
-  // Turso/libsql uses a "file:" URL scheme.
-  // On Windows, convert backslashes and ensure there's a leading slash.
-  let p = String(absPath);
-  if (process.platform === "win32") p = p.replace(/\\/g, "/");
-  if (!p.startsWith("/")) p = `/${p}`;
-  return `file:${p}`;
-}
-
-function resolveLocalDbPath({ account, slug }) {
-  const dir = localDirForAccount(account);
-  if (!dir) throw new Error(`Missing LOCAL_DB_DIR_${account}`);
-
-  const absDir = path.isAbsolute(dir) ? dir : path.resolve(process.cwd(), dir);
-  const file = `s27-${slug}.sqlite`;
-  const absPath = path.join(absDir, file);
-
-  if (!fs.existsSync(absPath)) {
-    throw new Error(
-      `Local DB not found for district '${slug}' (account ${account}). Expected file: ${absPath}`
-    );
-  }
-
-  return absPath;
-}
-
-let _libsqlMod = null;
-async function getLibsql() {
-  if (_libsqlMod) return _libsqlMod;
-  _libsqlMod = await import("@libsql/client");
-  return _libsqlMod;
-}
-
-const CLIENT_CACHE = new Map();
-
-async function getClient(districtIdOrSlug) {
-  const { slug, account, user, token } = resolveAccount(districtIdOrSlug);
-
-  const local = isLocalMode();
-  const cacheKey = `${local ? "LOCAL" : "REMOTE"}:${account}:${slug}`;
-  if (CLIENT_CACHE.has(cacheKey)) return CLIENT_CACHE.get(cacheKey);
-
-  const { createClient } = await getLibsql();
-
-  if (local) {
-    const absPath = resolveLocalDbPath({ account, slug });
-    const url = toLibsqlFileUrl(absPath);
-
-    const client = createClient({ url });
-    CLIENT_CACHE.set(cacheKey, client);
-
-    console.log(`[db] LOCAL account=${account} district=${slug} file=${absPath}`);
-    return client;
-  }
-
-  if (!token) throw new Error(`Missing TURSO_TOKEN_${account} in Netlify env vars`);
-
-  const url = `libsql://s27-${slug}-${user}.aws-ap-south-1.turso.io`;
-  const client = createClient({ url, authToken: token });
-  CLIENT_CACHE.set(cacheKey, client);
-
-  console.log(`[db] TURSO account=${account} district=${slug} url=${url}`);
-  return client;
-}
-
-function json(statusCode, obj) {
-  return {
-    statusCode,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "content-type",
-      "access-control-allow-methods": "POST,OPTIONS",
-    },
-    body: JSON.stringify(obj ?? {}),
-  };
-}
-
-function ok(obj) {
-  return json(200, { ok: true, ...obj });
-}
-
-function badRequest(msg) {
-  return json(400, { ok: false, error: String(msg || "Bad Request") });
-}
-
-function serverError(err) {
-  const msg = err && err.message ? err.message : String(err || "Server Error");
-  return json(500, { ok: false, error: msg });
-}
-
-async function readJsonBody(event) {
-  try {
-    const raw = event.body || "";
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return null;
-  }
-}
-
-function asInt(x, fallback = null) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function asString(x, fallback = "") {
-  return x === null || x === undefined ? fallback : String(x);
-}
-
-function toBufferMaybe(x) {
-  if (!x) return null;
-  if (Buffer.isBuffer(x)) return x;
-  if (x instanceof Uint8Array) return Buffer.from(x);
-  if (x instanceof ArrayBuffer) return Buffer.from(new Uint8Array(x));
-  return Buffer.from(x);
-}
-
-// Heuristic decoder for row_ids BLOB.
-// Supports: packed uint32 LE, packed uint64 LE, varint (LEB128), and varint-delta (cumsum).
-function decodeRowIds(blob, nHint) {
-  const buf = toBufferMaybe(blob);
-  if (!buf || !buf.length) return [];
-
-  const len = buf.length;
-  const n = asInt(nHint, null);
-
-  function decodeU32() {
-    const out = [];
-    for (let i = 0; i + 4 <= len; i += 4) out.push(buf.readUInt32LE(i));
-    return out;
-  }
-
-  function decodeU64() {
-    const out = [];
-    for (let i = 0; i + 8 <= len; i += 8) {
-      const v = buf.readBigUInt64LE(i);
-      const num = Number(v);
-      out.push(Number.isFinite(num) ? num : 0);
-    }
-    return out;
-  }
-
-  if (n && len === n * 4) return decodeU32();
-  if (n && len === n * 8) return decodeU64();
-
-  if (len % 4 === 0 && (!n || len / 4 === n)) return decodeU32();
-  if (len % 8 === 0 && (!n || len / 8 === n)) return decodeU64();
-
-  // Varint (unsigned LEB128)
-  const raw = [];
-  let i = 0;
-  while (i < len) {
-    let res = 0;
-    let shift = 0;
-    while (true) {
-      if (i >= len) break;
-      const b = buf[i++];
-      res |= (b & 0x7f) << shift;
-      if ((b & 0x80) === 0) break;
-      shift += 7;
-      if (shift > 35) break;
-    }
-    raw.push(res >>> 0);
-  }
-
-  const directOk = !n || raw.length === n;
-
-  const delta = [];
-  let acc = 0;
-  for (const d of raw) {
-    acc += d;
-    delta.push(acc >>> 0);
-  }
-  const deltaOk = !n || delta.length === n;
-
-  if (directOk && !deltaOk) return raw;
-  if (!directOk && deltaOk) return delta;
-
-  const maxDirect = raw.reduce((m, v) => (v > m ? v : m), 0);
-  const maxDelta = delta.reduce((m, v) => (v > m ? v : m), 0);
-
-  if (maxDirect < 5000 && maxDelta > 5000) return delta;
-
-  return raw;
-}
-
-module.exports = {
-  getClient,
-  ok,
-  badRequest,
-  serverError,
-  readJsonBody,
-  asInt,
-  asString,
-  decodeRowIds,
-};
-
-*/
