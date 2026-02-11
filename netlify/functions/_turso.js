@@ -157,11 +157,34 @@ function decodeRowIds(blob, nHint) {
   }
 
   function decodeU64() {
+    // Optimized for our data:
+    // row_id values fit in uint32 (<= ~200k), but blobs are packed as uint64 LE.
+    // Reading BigInt is significantly slower than reading UInt32.
+    //
+    // Safe behavior:
+    // - Fast path: read low 32 bits (every 8 bytes) IF all high 32 bits are zero.
+    // - Fallback: if any high word is non-zero, compute using number math when safe,
+    //   otherwise use BigInt for that element.
     const out = [];
     for (let i = 0; i + 8 <= len; i += 8) {
-      const v = buf.readBigUInt64LE(i);
-      const num = Number(v);
-      out.push(Number.isFinite(num) ? num : 0);
+      const lo = buf.readUInt32LE(i);
+      const hi = buf.readUInt32LE(i + 4);
+
+      if (hi === 0) {
+        out.push(lo);
+        continue;
+      }
+
+      // Rare fallback: keep correctness even if a DB ever stores larger ids.
+      // Use number math when safe; otherwise BigInt.
+      const asNum = hi * 4294967296 + lo;
+      if (Number.isSafeInteger(asNum)) {
+        out.push(asNum);
+      } else {
+        const v = buf.readBigUInt64LE(i);
+        const num = Number(v);
+        out.push(Number.isFinite(num) ? num : 0);
+      }
     }
     return out;
   }

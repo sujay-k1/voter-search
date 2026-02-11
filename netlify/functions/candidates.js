@@ -145,6 +145,39 @@ function mergeCounts(lists, totalKeys) {
   return out;
 }
 
+
+function mergeUnion(lists) {
+  // Merge sorted uint32 arrays into a single sorted unique list.
+  const heap = new MinHeap();
+
+  for (let li = 0; li < lists.length; li++) {
+    const arr = lists[li].arr;
+    if (arr.length) {
+      heap.push({ v: arr[0] >>> 0, li });
+      lists[li].idx = 0;
+    }
+  }
+
+  const out = [];
+  let last = null;
+
+  while (heap.size) {
+    const first = heap.pop();
+    const v = first.v >>> 0;
+
+    const L = lists[first.li];
+    L.idx++;
+    if (L.idx < L.arr.length) heap.push({ v: L.arr[L.idx] >>> 0, li: first.li });
+
+    if (last === null || v !== last) {
+      out.push(v);
+      last = v;
+    }
+  }
+
+  return out;
+}
+
 function normalizeKeys(keysIn) {
   if (!Array.isArray(keysIn)) return [];
   const keys = keysIn
@@ -243,6 +276,7 @@ exports.handler = async (event) => {
     // ------------------------------
     if (Array.isArray(body.queries) && body.queries.length) {
       const queriesIn = body.queries;
+      const ret = asString(body.ret, "ids").trim().toLowerCase(); // "ids" (default) | "full"
 
       // Validate + normalize; group by table to minimize DB round-trips.
       const byTable = new Map();
@@ -253,19 +287,54 @@ exports.handler = async (event) => {
         const keys = normalizeKeys(q.keys);
 
         if (!ALLOWED_TABLES.has(table)) return badRequest(`Invalid table: ${table}`);
-        if (!keys.length) {
-          // empty: still include empty result for that tag
-          if (!byTable.has(table)) byTable.set(table, { allKeys: new Set(), items: [] });
-          byTable.get(table).items.push({ tag, table, keys });
-          continue;
-        }
 
         if (!byTable.has(table)) byTable.set(table, { allKeys: new Set(), items: [] });
         const bucket = byTable.get(table);
+
+        // Keep items only for "full" mode; in "ids" mode we only need the union.
+        if (ret === "full") bucket.items.push({ tag, table, keys });
+
         keys.forEach((k) => bucket.allKeys.add(k));
-        bucket.items.push({ tag, table, keys });
       }
 
+      // ---- Fast path: ids-only (no hit_count/and_hit) ----
+      if (ret !== "full") {
+        let tablesTouched = 0;
+        let decodedTotalAll = 0;
+
+        const lists = [];
+
+        // We could parallelize per-table queries, but keeping it sequential is
+        // usually fine and avoids overloading libsql on cold starts.
+        for (const [table, bucket] of byTable.entries()) {
+          const allKeys = Array.from(bucket.allKeys);
+          if (!allKeys.length) continue;
+
+          const got = await fetchRowsForKeys(client, { table, state, ac, keys: allKeys });
+          tablesTouched++;
+
+          for (const k of allKeys) {
+            const row = got.get(k);
+            if (!row) continue;
+            const arr = decodeKeyRow(table, state, ac, k, row);
+            if (arr && arr.length) {
+              lists.push({ arr, idx: 0 });
+              decodedTotalAll += arr.length;
+            }
+          }
+        }
+
+        const ids = lists.length ? mergeUnion(lists) : [];
+
+        const ms = Date.now() - t0;
+        console.log(
+          `[candidates] IDS district=${district} ac=${ac} tables=${tablesTouched} keys_union=${Array.from(byTable.values()).reduce((s,b)=>s+b.allKeys.size,0)} decoded_total=${decodedTotalAll} out=${ids.length} (${ms}ms)`
+        );
+
+        return ok({ ids });
+      }
+
+      // ---- Full mode: per-tag rows with hit_count + and_hit (debug/back-compat) ----
       const results = {};
       let tablesTouched = 0;
       let decodedTotalAll = 0;
@@ -288,7 +357,6 @@ exports.handler = async (event) => {
           decodedByKey.set(k, decodeKeyRow(table, state, ac, k, row));
         }
 
-        // For each tag, build lists from decodedByKey.
         for (const item of bucket.items) {
           const totalKeys = item.keys.length;
           if (!totalKeys) {
@@ -296,23 +364,23 @@ exports.handler = async (event) => {
             continue;
           }
 
-          const lists = [];
+          const lists2 = [];
           let decodedTotal = 0;
 
           for (const k of item.keys) {
             const arr = decodedByKey.get(k) || [];
             if (arr.length) {
-              lists.push({ arr, idx: 0 });
+              lists2.push({ arr, idx: 0 });
               decodedTotal += arr.length;
             }
           }
 
-          if (!lists.length) {
+          if (!lists2.length) {
             results[item.tag] = { rows: [] };
             continue;
           }
 
-          const rowsOut = mergeCounts(lists, totalKeys);
+          const rowsOut = mergeCounts(lists2, totalKeys);
           results[item.tag] = { rows: rowsOut };
 
           decodedTotalAll += decodedTotal;
@@ -321,7 +389,7 @@ exports.handler = async (event) => {
 
       const ms = Date.now() - t0;
       console.log(
-        `[candidates] BATCH district=${district} ac=${ac} tags=${Object.keys(results).length} tables=${tablesTouched} decoded_total=${decodedTotalAll} (${ms}ms)`
+        `[candidates] FULL district=${district} ac=${ac} tags=${Object.keys(results).length} tables=${tablesTouched} decoded_total=${decodedTotalAll} (${ms}ms)`
       );
 
       return ok({ results });

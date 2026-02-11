@@ -1103,6 +1103,36 @@ function setStatus(msg) {
   if (statusResults) statusResults.textContent = msg ?? "";
 }
 
+
+// Global progress context (set during a search), so worker progress can show ETA too.
+let progressCtx = null;
+
+function withGlobalProgress(base) {
+  if (!progressCtx) return base;
+  const totalAcs = progressCtx.totalAcs || 0;
+  const processed = progressCtx.processed || 0;
+  const prepared = progressCtx.prepared || 0;
+  const tStart = progressCtx.tStart || 0;
+
+  const elapsed = performance.now() - tStart;
+  const eta = processed > 0 ? ((elapsed / processed) * (totalAcs - processed)) : NaN;
+
+  const fmtETA = (ms) => {
+    if (!Number.isFinite(ms) || ms <= 0) return "";
+    const s = Math.max(1, Math.round(ms / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.round(s / 60);
+    return `${m}m`;
+  };
+
+  const parts = [`${processed}/${totalAcs} done`];
+  if (prepared !== processed) parts.push(`${prepared}/${totalAcs} prepared`);
+  const etaTxt = fmtETA(eta);
+  if (etaTxt) parts.push(`ETA ~${etaTxt}`);
+
+  return `${base} • ${parts.join(" • ")}`;
+}
+
 function setBar(_pct) {}
 
 function setMeta(msg) {
@@ -1827,33 +1857,32 @@ async function loadAC(stateCode, acNo) {
 async function queryIndexCandidatesBatchForAc(acNo, querySpecs) {
   const districtSlug = slugifyDistrictId(currentDistrictId || "");
   if (!districtSlug) throw new Error("District not selected");
-  if (!querySpecs || !querySpecs.length) return {};
+  if (!querySpecs || !querySpecs.length) return [];
 
-  // Batched backend call: 1 request per AC (instead of 4-6).
+  // Batched backend call: 1 request per AC.
+  // Use ids-only mode for speed (server skips hit_count/and_hit aggregation).
   const resp = await callFn(
     "candidates",
     {
       district: districtSlug,
       state: current.state || STATE_CODE_DEFAULT,
       ac: Number(acNo),
-      queries: querySpecs.map((q) => ({ tag: q.tag, table: q.table, keys: q.keys })),
+      ret: "ids",
+      queries: querySpecs.map((q) => ({ table: q.table, keys: q.keys })),
     },
     { timeoutMs: 45000, retries: 1 }
   );
 
-  const out = {};
-  const results = resp?.results || {};
-  for (const q of querySpecs) {
-    const tag = q.tag;
-    const rows = results?.[tag]?.rows || [];
-    const m = new Map();
-    for (const r of rows) {
-      m.set(Number(r.row_id), {
-        hit_count: Number(r.hit_count),
-        and_hit: Boolean(r.and_hit),
-      });
-    }
-    out[tag] = m;
+  const ids = Array.isArray(resp?.ids) ? resp.ids : [];
+  // Ensure numeric + unique (server already returns unique sorted, but stay defensive).
+  const out = [];
+  const seen = new Set();
+  for (const x of ids) {
+    const n = Number(x);
+    if (!Number.isFinite(n)) continue;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
   }
   return out;
 }
@@ -1879,7 +1908,7 @@ async function getCandidatesForQueryForAc(acNo, q, scope, exactOn) {
   const looseKeys = buildKeysFromTokens(looseTokens, PREFIX_LEN_LOOSE);
 
   if (!strictKeys.length && !exactKeys.length && !looseKeys.length) {
-    return { candidates: [], metaByRow: new Map(), strictKeys, exactKeys, looseKeys };
+    return { candidates: [], strictKeys, exactKeys, looseKeys };
   }
 
   const wantLoose = !exactOn;
@@ -1907,53 +1936,11 @@ async function getCandidatesForQueryForAc(acNo, q, scope, exactOn) {
     }
   }
 
-  const maps = await queryIndexCandidatesBatchForAc(acNo, querySpecs);
-
-  const strictVoterMap = maps.sv || new Map();
-  const strictRelMap = maps.sr || new Map();
-  const exactVoterMap = maps.ev || new Map();
-  const exactRelMap = maps.er || new Map();
-  const looseVoterMap = maps.lv || new Map();
-  const looseRelMap = maps.lr || new Map();
-
-  const metaByRow = new Map();
-
-  function upsert(row_id, patch) {
-    const cur =
-      metaByRow.get(row_id) || {
-        voter_hit_count: 0,
-        voter_and_hit: false,
-        relative_hit_count: 0,
-        relative_and_hit: false,
-        voter_exact_hit_count: 0,
-        voter_exact_and_hit: false,
-        relative_exact_hit_count: 0,
-        relative_exact_and_hit: false,
-        voter_loose_hit_count: 0,
-        voter_loose_and_hit: false,
-        relative_loose_hit_count: 0,
-        relative_loose_and_hit: false,
-      };
-    metaByRow.set(row_id, { ...cur, ...patch });
-  }
-
-  for (const [rid, m] of strictVoterMap.entries()) upsert(rid, { voter_hit_count: m.hit_count, voter_and_hit: m.and_hit });
-  for (const [rid, m] of strictRelMap.entries())
-    upsert(rid, { relative_hit_count: m.hit_count, relative_and_hit: m.and_hit });
-  for (const [rid, m] of exactVoterMap.entries())
-    upsert(rid, { voter_exact_hit_count: m.hit_count, voter_exact_and_hit: m.and_hit });
-  for (const [rid, m] of exactRelMap.entries())
-    upsert(rid, { relative_exact_hit_count: m.hit_count, relative_exact_and_hit: m.and_hit });
-  for (const [rid, m] of looseVoterMap.entries())
-    upsert(rid, { voter_loose_hit_count: m.hit_count, voter_loose_and_hit: m.and_hit });
-  for (const [rid, m] of looseRelMap.entries())
-    upsert(rid, { relative_loose_hit_count: m.hit_count, relative_loose_and_hit: m.and_hit });
-
-  const candidates = Array.from(metaByRow.keys());
-  return { candidates, metaByRow, strictKeys, exactKeys, looseKeys };
+  const candidates = await queryIndexCandidatesBatchForAc(acNo, querySpecs);
+  return { candidates, strictKeys, exactKeys, looseKeys };
 }
-
 /*
+
 // ---------- Fetch scoring rows (per AC) ----------
 function makeKey(ac, row_id) {
   return `${Number(ac)}:${Number(row_id)}`;
@@ -2030,7 +2017,7 @@ function initWorker() {
 
     if (msg.type === "progress") {
       const { done, total, phase, candidates } = msg;
-      setStatus(`${phase} • candidates: ${candidates} • scored: ${done}/${total}`);
+      setStatus(withGlobalProgress(`${phase} • candidates: ${candidates} • scored: ${done}/${total}`));
       return;
     }
 
@@ -2473,21 +2460,45 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
   const merged = [];
   if (!acList || !acList.length) return merged;
 
-  const prepareAc = async (ac) => {
-    setStatus(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac }));
-    const { candidates, metaByRow } = await getCandidatesForQueryForAc(ac, qStrict, searchScope, exactOn);
-    if (!candidates.length) return { ac, rowsWithMeta: [], candidates: 0 };
+  const totalAcs = acList.length;
+  const tStart = performance.now();
 
-    setStatus(t("status_stage2", { n: candidates.length, ac }));
+  progressCtx = { totalAcs, processed: 0, prepared: 0, tStart };
+
+  let prepared = 0;  // candidates+score-rows fetched (or failed)
+  let processed = 0; // fully handled (worker ran or skipped)
+  let started = 0;
+
+  function fmtETA(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) return "";
+    const s = Math.max(1, Math.round(ms / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.round(s / 60);
+    return `${m}m`;
+  }
+
+  function withProgress(base) {
+    const elapsed = performance.now() - tStart;
+    const eta = processed > 0 ? ((elapsed / processed) * (totalAcs - processed)) : NaN;
+    const etaTxt = fmtETA(eta);
+    const parts = [`${processed}/${totalAcs} done`];
+    if (prepared !== processed) parts.push(`${prepared}/${totalAcs} prepared`);
+    if (etaTxt) parts.push(`ETA ~${etaTxt}`);
+    return `${base} • ${parts.join(" • ")}`;
+  }
+
+  const prepareAc = async (ac) => {
+    setStatus(withGlobalProgress(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac })));
+    const { candidates } = await getCandidatesForQueryForAc(ac, qStrict, searchScope, exactOn);
+    if (!candidates.length) return { ac, rows: [], candidates: 0 };
+
+    setStatus(withGlobalProgress(t("status_stage2", { n: candidates.length, ac })));
     const rows = await fetchScoreRowsByIdsForAc(ac, candidates);
-    const rowsWithMeta = rows.map((r) => ({ ...r, _meta: metaByRow.get(r.row_id) || null }));
-    return { ac, rowsWithMeta, candidates: candidates.length };
+    return { ac, rows, candidates: candidates.length };
   };
 
   let nextIndex = 0;
   let inFlight = 0;
-  let started = 0;
-  let done = 0;
 
   const ready = [];
   let notifyResolve = null;
@@ -2501,6 +2512,8 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
   const waitReady = () => new Promise((res) => (notifyResolve = res));
 
   const pushReady = (item) => {
+    prepared++;
+    if (progressCtx) progressCtx.prepared = prepared;
     ready.push(item);
     notify();
   };
@@ -2509,7 +2522,7 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
     while (inFlight < MAX_PREP_IN_FLIGHT_AC && nextIndex < acList.length) {
       const ac = acList[nextIndex++];
       started++;
-      setStatus(t("status_stage0", { ac, i: started, n: acList.length }));
+      setStatus(withGlobalProgress(t("status_stage0", { ac, i: started, n: totalAcs })));
 
       inFlight++;
       prepareAc(ac)
@@ -2525,7 +2538,7 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
 
   scheduleMore();
 
-  while (done < acList.length) {
+  while (processed < totalAcs) {
     if (myToken !== activeSearchToken) return null; // cancelled
 
     if (!ready.length) {
@@ -2534,18 +2547,20 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
     }
 
     const settled = ready.shift();
-    done++;
-    setBar(Math.round((done / acList.length) * 100));
 
     if (!settled || !settled.ok) {
+      processed++;
+    if (progressCtx) progressCtx.processed = processed;
+      setStatus(withGlobalProgress(t("status_stage0", { ac: settled?.ac ?? "?", i: processed, n: totalAcs })));
       console.warn("Skipping AC due to prepare error:", settled?.ac, settled?.err);
       continue;
     }
 
-    const { ac, rowsWithMeta } = settled.val;
-    if (rowsWithMeta.length) {
-      setStatus(t("status_stage3", { n: rowsWithMeta.length, ac }));
-      const ranked = await runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker);
+    const { ac, rows } = settled.val;
+
+    if (rows.length) {
+      setStatus(withGlobalProgress(t("status_stage3", { n: rows.length, ac })));
+      const ranked = await runWorkerRanking(rows, qStrict, exactOn, scopeForWorker);
       for (const r of ranked) {
         merged.push({
           key: makeKey(ac, r.row_id),
@@ -2558,8 +2573,13 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
       }
       resultsCountEl.textContent = String(merged.length);
     }
+
+    processed++;
+    if (progressCtx) progressCtx.processed = processed;
+    setStatus(withGlobalProgress(t("status_stage0", { ac, i: processed, n: totalAcs })));
   }
 
+  progressCtx = null;
   return merged;
 }
 
