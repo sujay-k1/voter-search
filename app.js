@@ -2674,6 +2674,8 @@ async function runSearch() {
 
   pagerEl.style.display = "none";
   $("results").innerHTML = "";
+  
+  showLoader();
 
   setBar(0);
 
