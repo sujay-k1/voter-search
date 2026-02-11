@@ -1940,7 +1940,6 @@ async function getCandidatesForQueryForAc(acNo, q, scope, exactOn) {
   return { candidates, strictKeys, exactKeys, looseKeys };
 }
 /*
-
 // ---------- Fetch scoring rows (per AC) ----------
 function makeKey(ac, row_id) {
   return `${Number(ac)}:${Number(row_id)}`;
