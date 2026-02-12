@@ -404,6 +404,7 @@
       padding: 0 18px 0;
       text-align:left;
     }
+    #statusWrapResults{ display: none; }
     .statusLine{
       color: #4a4a4a;
       font-size: 13px;
@@ -474,6 +475,23 @@
   font-size: 12px;
   color: rgba(0,0,0,.55);
   text-align:center;
+}
+
+.tableProgressOverlay{
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,.78);
+  z-index: 6;
+  pointer-events: none;
+}
+.tableProgressOverlay .progressPanel{
+  padding: 0;
+}
+.tableProgressOverlay .progressSub{
+  display: none;
 }
 
 
@@ -1210,29 +1228,25 @@
       </div>
     </div>
 
-<div class="statusWrap" id="statusWrapResults">
-  <div class="progressPanel" id="progressPanelResults" style="display:none;" aria-live="polite">
-    <div class="progressRing" aria-hidden="true">
-      <svg class="ringSvg" viewBox="0 0 36 36">
-        <path class="ringBg" d="M18 2.0845
-          a 15.9155 15.9155 0 0 1 0 31.831
-          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-        <path class="ringFg" id="progressRingResults" stroke-dasharray="0, 100" d="M18 2.0845
-          a 15.9155 15.9155 0 0 1 0 31.831
-          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-      </svg>
-      <div class="ringCenter"><span id="progressPctResults">0%</span></div>
-    </div>
-    <div class="progressStage" id="progressStageResults"></div>
-    <div class="progressSub" id="progressSubResults"></div>
-  </div>
-
-  <div class="statusLine" id="statusResults"></div>
-  <div class="metaLine" id="metaResults"></div>
-</div>
-
     <div class="resultsBody">
       <div class="tableRegion">
+        <div class="tableProgressOverlay" id="progressOverlayResults" aria-live="polite" aria-hidden="true">
+          <div class="progressPanel" id="progressPanelResults" style="display:none;">
+            <div class="progressRing" aria-hidden="true">
+              <svg class="ringSvg" viewBox="0 0 36 36">
+                <path class="ringBg" d="M18 2.0845
+                  a 15.9155 15.9155 0 0 1 0 31.831
+                  a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+                <path class="ringFg" id="progressRingResults" stroke-dasharray="0, 100" d="M18 2.0845
+                  a 15.9155 15.9155 0 0 1 0 31.831
+                  a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+              </svg>
+              <div class="ringCenter"><span id="progressPctResults">0%</span></div>
+            </div>
+            <div class="progressStage" id="progressStageResults"></div>
+            <div class="progressSub" id="progressSubResults"></div>
+          </div>
+        </div>
         <div class="results" id="results"></div>
         <button id="scrollTopFab" type="button" aria-label="Scroll to top" style="position: fixed;"><span  data-i18n="Scroll_to_top">↑</span></button>
       </div>
