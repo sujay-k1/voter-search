@@ -115,6 +115,7 @@ export const I18N = {
     progress_stage_rows: "Details ला रहे हैं…",
     progress_stage_rank: "Ranking हो रहा है…",
     progress_stage_finalize: "Finalizing…",
+    progress_ac_context: "निर्वाचन क्षेत्र {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
 
 
@@ -254,6 +255,7 @@ export const I18N = {
     progress_stage_rows: "Loading details…",
     progress_stage_rank: "Ranking…",
     progress_stage_finalize: "Finalizing…",
+    progress_ac_context: "AC {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
 
 
@@ -391,6 +393,7 @@ export const I18N = {
     progress_stage_rows: "Loading details…",
     progress_stage_rank: "Ranking…",
     progress_stage_finalize: "Finalizing…",
+    progress_ac_context: "AC {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
 
 

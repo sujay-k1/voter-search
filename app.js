@@ -1097,6 +1097,12 @@ const statusLanding = $("statusLanding");
 const metaLanding = $("metaLanding");
 const statusResults = $("statusResults");
 const metaResults = $("metaResults");
+const progressOverlayResults = $("progressOverlayResults");
+const progressPanelResults = $("progressPanelResults");
+const progressRingResults = $("progressRingResults");
+const progressPctResults = $("progressPctResults");
+const progressStageResults = $("progressStageResults");
+const progressSubResults = $("progressSubResults");
 
 function setStatus(msg) {
   if (statusLanding) statusLanding.textContent = msg ?? "";
@@ -1104,100 +1110,39 @@ function setStatus(msg) {
 }
 
 
-// Global progress context (set during a search), so worker progress can show ETA too.
-// Global progress context (set during a search), so worker progress can show ETA too.
-let progressCtx = null;
-
-function withGlobalProgress(base) {
-  if (!progressCtx) return base;
-
-  const totalAcs = progressCtx.totalAcs || 0;
-  const processed = progressCtx.processed || 0;
-  const prepared = progressCtx.prepared || 0;
-  const tStart = progressCtx.tStart || 0;
-
-  const elapsed = performance.now() - tStart;
-  const eta = processed > 0
-    ? ((elapsed / processed) * (totalAcs - processed))
-    : NaN;
-
-  const fmtETA = (ms) => {
-    if (!Number.isFinite(ms) || ms <= 0) return "";
-    const s = Math.max(1, Math.round(ms / 1000));
-    if (s < 60) return `${s}s`;
-    const m = Math.round(s / 60);
-    return `${m}m`;
-  };
-
-  const parts = [`${processed}/${totalAcs} done`];
-  if (prepared !== processed) parts.push(`${prepared}/${totalAcs} prepared`);
-
-  const etaTxt = fmtETA(eta);
-  if (etaTxt) parts.push(`ETA ~${etaTxt}`);
-
-  return `${base} • ${parts.join(" • ")}`;
+function setResultsProgressVisible(visible) {
+  if (progressOverlayResults) {
+    progressOverlayResults.style.display = visible ? "flex" : "none";
+    progressOverlayResults.setAttribute("aria-hidden", visible ? "false" : "true");
+  }
+  if (progressPanelResults) progressPanelResults.style.display = visible ? "flex" : "none";
 }
 
-// ===== PROGRESS BAR CONTROL =====
+function setProgressStage(msg) {
+  if (progressStageResults) progressStageResults.textContent = msg ?? "";
+}
+
+function setProgressSub(msg) {
+  if (progressSubResults) progressSubResults.textContent = msg ?? "";
+}
+
+function phaseLabelForWorker(phase) {
+  if (phase === "scoring") return t("progress_stage_rank");
+  return String(phase || "").trim();
+}
+
+function formatWorkerStage(phase, ac, i, n) {
+  const p = phaseLabelForWorker(phase);
+  const acPart = t("progress_ac_context", { ac, i, n });
+  return p ? `${p} • ${acPart}` : acPart;
+}
 
 function setBar(pct) {
-  if (!progressCtx) return;
-
-  pct = Math.max(0, Math.min(100, pct || 0));
-  const dash = `${pct}, 100`;
-
-  // Update SVG rings
-  if (progressRingLanding) {
-    progressRingLanding.setAttribute("stroke-dasharray", dash);
-  }
-  if (progressRingResults) {
-    progressRingResults.setAttribute("stroke-dasharray", dash);
-  }
-
-  // Update percentage text
-  if (progressPctLanding) {
-    progressPctLanding.textContent = `${Math.round(pct)}%`;
-  }
-  if (progressPctResults) {
-    progressPctResults.textContent = `${Math.round(pct)}%`;
-  }
-
-  // Auto-hide when complete
-  if (pct >= 100) {
-    hideLoader();
-    progressCtx = null;
-  }
-}
-
-function showLoader() {
-  if (progressPanelLanding)
-    progressPanelLanding.style.display = "flex";
-
-  if (progressPanelResults)
-    progressPanelResults.style.display = "flex";
-
-  setBar(0);
-}
-
-function hideLoader() {
-  if (progressPanelLanding)
-    progressPanelLanding.style.display = "none";
-
-  if (progressPanelResults)
-    progressPanelResults.style.display = "none";
-
-  // Reset ring
-  if (progressRingLanding)
-    progressRingLanding.setAttribute("stroke-dasharray", "0, 100");
-
-  if (progressRingResults)
-    progressRingResults.setAttribute("stroke-dasharray", "0, 100");
-
-  if (progressPctLanding)
-    progressPctLanding.textContent = "0%";
-
-  if (progressPctResults)
-    progressPctResults.textContent = "0%";
+  const safe = Number.isFinite(Number(pct)) ? Number(pct) : 0;
+  const clamped = Math.max(0, Math.min(100, safe));
+  const rounded = Math.round(clamped);
+  if (progressRingResults) progressRingResults.setAttribute("stroke-dasharray", `${clamped}, 100`);
+  if (progressPctResults) progressPctResults.textContent = `${rounded}%`;
 }
 
 function setMeta(msg) {
@@ -2080,6 +2025,7 @@ async function fetchScoreRowsByIdsForAc(acNo, rowIds) {
 let worker;
 let pendingResolve = null;
 let pendingReject = null;
+let pendingProgress = null;
 
 function initWorker() {
   if (worker) return;
@@ -2092,7 +2038,9 @@ function initWorker() {
 
     if (msg.type === "progress") {
       const { done, total, phase, candidates } = msg;
-      setStatus(withGlobalProgress(`${phase} • candidates: ${candidates} • scored: ${done}/${total}`));
+      if (typeof pendingProgress === "function") {
+        pendingProgress({ done, total, phase, candidates });
+      }
       return;
     }
 
@@ -2108,6 +2056,7 @@ function initWorker() {
         const r = pendingResolve;
         pendingResolve = null;
         pendingReject = null;
+        pendingProgress = null;
         r(ranked);
       }
       return;
@@ -2119,6 +2068,7 @@ function initWorker() {
         const rej = pendingReject;
         pendingResolve = null;
         pendingReject = null;
+        pendingProgress = null;
         rej(new Error(msg.message));
       }
       return;
@@ -2126,11 +2076,12 @@ function initWorker() {
   };
 }
 
-function runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker) {
+function runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker, onProgress) {
   initWorker();
   return new Promise((resolve, reject) => {
     pendingResolve = resolve;
     pendingReject = reject;
+    pendingProgress = typeof onProgress === "function" ? onProgress : null;
 
     worker.postMessage({
       type: "start",
@@ -2536,38 +2487,17 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
   if (!acList || !acList.length) return merged;
 
   const totalAcs = acList.length;
-  const tStart = performance.now();
-
-  progressCtx = { totalAcs, processed: 0, prepared: 0, tStart };
 
   let prepared = 0;  // candidates+score-rows fetched (or failed)
   let processed = 0; // fully handled (worker ran or skipped)
   let started = 0;
 
-  function fmtETA(ms) {
-    if (!Number.isFinite(ms) || ms <= 0) return "";
-    const s = Math.max(1, Math.round(ms / 1000));
-    if (s < 60) return `${s}s`;
-    const m = Math.round(s / 60);
-    return `${m}m`;
-  }
-
-  function withProgress(base) {
-    const elapsed = performance.now() - tStart;
-    const eta = processed > 0 ? ((elapsed / processed) * (totalAcs - processed)) : NaN;
-    const etaTxt = fmtETA(eta);
-    const parts = [`${processed}/${totalAcs} done`];
-    if (prepared !== processed) parts.push(`${prepared}/${totalAcs} prepared`);
-    if (etaTxt) parts.push(`ETA ~${etaTxt}`);
-    return `${base} • ${parts.join(" • ")}`;
-  }
-
   const prepareAc = async (ac) => {
-    setStatus(withGlobalProgress(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac })));
+    setProgressStage(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac }));
     const { candidates } = await getCandidatesForQueryForAc(ac, qStrict, searchScope, exactOn);
     if (!candidates.length) return { ac, rows: [], candidates: 0 };
 
-    setStatus(withGlobalProgress(t("status_stage2", { n: candidates.length, ac })));
+    setProgressStage(t("status_stage2", { n: candidates.length, ac }));
     const rows = await fetchScoreRowsByIdsForAc(ac, candidates);
     return { ac, rows, candidates: candidates.length };
   };
@@ -2588,7 +2518,6 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
 
   const pushReady = (item) => {
     prepared++;
-    if (progressCtx) progressCtx.prepared = prepared;
     ready.push(item);
     notify();
   };
@@ -2597,7 +2526,8 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
     while (inFlight < MAX_PREP_IN_FLIGHT_AC && nextIndex < acList.length) {
       const ac = acList[nextIndex++];
       started++;
-      setStatus(withGlobalProgress(t("status_stage0", { ac, i: started, n: totalAcs })));
+      setProgressStage(t("status_stage0", { ac, i: started, n: totalAcs }));
+      setBar((processed / totalAcs) * 100);
 
       inFlight++;
       prepareAc(ac)
@@ -2625,8 +2555,8 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
 
     if (!settled || !settled.ok) {
       processed++;
-    if (progressCtx) progressCtx.processed = processed;
-      setStatus(withGlobalProgress(t("status_stage0", { ac: settled?.ac ?? "?", i: processed, n: totalAcs })));
+      setBar((processed / totalAcs) * 100);
+      setProgressStage(t("status_stage0", { ac: settled?.ac ?? "?", i: processed, n: totalAcs }));
       console.warn("Skipping AC due to prepare error:", settled?.ac, settled?.err);
       continue;
     }
@@ -2634,8 +2564,13 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
     const { ac, rows } = settled.val;
 
     if (rows.length) {
-      setStatus(withGlobalProgress(t("status_stage3", { n: rows.length, ac })));
-      const ranked = await runWorkerRanking(rows, qStrict, exactOn, scopeForWorker);
+      setProgressStage(t("status_stage3", { n: rows.length, ac }));
+      const ranked = await runWorkerRanking(rows, qStrict, exactOn, scopeForWorker, ({ done, total, phase }) => {
+        const local = total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
+        const overall = ((processed + local) / totalAcs) * 100;
+        setBar(overall);
+        setProgressStage(formatWorkerStage(phase, ac, processed + 1, totalAcs));
+      });
       for (const r of ranked) {
         merged.push({
           key: makeKey(ac, r.row_id),
@@ -2650,11 +2585,9 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
     }
 
     processed++;
-    if (progressCtx) progressCtx.processed = processed;
-    setStatus(withGlobalProgress(t("status_stage0", { ac, i: processed, n: totalAcs })));
+    setBar((processed / totalAcs) * 100);
+    setProgressStage(t("status_stage0", { ac, i: processed, n: totalAcs }));
   }
-
-  progressCtx = null;
   return merged;
 }
 
@@ -2677,7 +2610,10 @@ async function runSearch() {
   
   showLoader();
 
+  setResultsProgressVisible(false);
   setBar(0);
+  setProgressStage("");
+  setProgressSub("");
 
   if (!qStrict) {
     setStatus(t("status_enter_query"));
@@ -2703,6 +2639,7 @@ async function runSearch() {
 
   showResults();
   resultsCountEl.textContent = "0";
+  setResultsProgressVisible(true);
 
   // Cancel/ignore older searches.
   const myToken = ++activeSearchToken;
@@ -2711,7 +2648,15 @@ async function runSearch() {
   masterRankedAll = [];
   lastSearchCtx = { districtSlug, query: qStrict, scope: scopeForWorker, exactOn, searchedACs: new Set() };
 
-  const merged = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
+  let merged;
+  try {
+    merged = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
+  } finally {
+    setBar(100);
+    setResultsProgressVisible(false);
+    setProgressStage("");
+    setProgressSub("");
+  }
   if (merged === null) return;
 
   // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
