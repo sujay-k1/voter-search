@@ -1163,18 +1163,29 @@ function setMeta(msg) {
   if (metaResults) metaResults.textContent = msg ?? "";
 }
 
+// ===== VIEW SWITCHING =====
+
 function showLanding() {
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
-  // Ensure results UI is restored when user returns.
+
+  // Always ensure loader is hidden when returning
+  hideLoader();
+
   resetMobileTableCompactUI();
 }
+
 function showResults() {
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
-  // Sync compact UI state (in case user navigates back to results).
-  if (tableRegion) setMobileTableCompact(tableRegion.scrollTop > 8);
+
+  // Ensure loader is hidden once results are visible
+  hideLoader();
+
+  if (tableRegion)
+    setMobileTableCompact(tableRegion.scrollTop > 8);
 }
+
 function isResultsVisible() {
   return window.getComputedStyle(resultsSection).display !== "none";
 }
@@ -2609,6 +2620,8 @@ async function runSearch() {
 
   pagerEl.style.display = "none";
   $("results").innerHTML = "";
+  
+  showLoader();
 
   setResultsProgressVisible(false);
   setBar(0);
