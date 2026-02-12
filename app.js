@@ -1118,6 +1118,19 @@ function setResultsProgressVisible(visible) {
   if (progressPanelResults) progressPanelResults.style.display = visible ? "flex" : "none";
 }
 
+// Backward-compatible loader API used by older callsites.
+function hideLoader() {
+  setResultsProgressVisible(false);
+  setProgressStage("");
+  setProgressSub("");
+  setBar(0);
+}
+
+function showLoader(stageMsg = "") {
+  setResultsProgressVisible(true);
+  setProgressStage(stageMsg || "");
+}
+
 function setProgressStage(msg) {
   if (progressStageResults) progressStageResults.textContent = msg ?? "";
 }
