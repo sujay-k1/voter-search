@@ -494,6 +494,81 @@
   display: none;
 }
 
+.infoBanner{
+  margin: 18px auto 0;
+  max-width: var(--maxw);
+  border: 2px dotted rgba(91,74,163,.28);
+  border-radius: 26px;
+  background: #f7efe9;
+  padding: 18px 24px;
+}
+.infoBannerHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 14px;
+}
+.infoBannerTitle{ font-size: 44px; margin: 0; color:#1f1f1f; font-weight: 900; }
+.infoBannerTitle small{ font-size: 16px; font-weight: 800; display:block; margin-top: 8px; }
+.infoBannerText{ margin: 0; color:#2a2a2a; font-size: 18px; line-height: 1.45; }
+.infoBannerLink{
+  border:0;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 20px;
+  cursor:pointer;
+  white-space: nowrap;
+  padding: 0;
+}
+
+.resultsToast{
+  position: absolute;
+  right: 18px;
+  top: 12px;
+  z-index: 25;
+  max-width: 410px;
+  border: 2px dotted rgba(91,74,163,.28);
+  border-radius: 20px;
+  background: #f7efe9;
+  padding: 16px 18px;
+  display: none;
+  box-shadow: var(--shadow);
+}
+.resultsToastRow{ display:flex; align-items:flex-start; gap: 14px; }
+.resultsToastRing{ width: 36px; height: 36px; flex: 0 0 auto; transform: rotate(-90deg); }
+.resultsToastBg{ fill:none; stroke: rgba(91,74,163,.20); stroke-width: 3.2; }
+.resultsToastFg{ fill:none; stroke: rgba(91,74,163,.60); stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 0 100; }
+.resultsToastTitle{ margin:0; font-size: 40px; font-weight: 900; color:#1f1f1f; }
+.resultsToastText{ margin: 2px 0 0; font-size: 16px; line-height: 1.4; color:#1f1f1f; }
+
+.announcementPage{
+  min-height: 100dvh;
+  display:none;
+  padding: 42px 36px 24px;
+}
+.announcementInner{ max-width: 980px; margin: 0 auto; }
+.announcementBack{
+  border:0; background:transparent; color:var(--accent); font-weight:700;
+  font-size: 34px; cursor:pointer; padding: 0; margin-bottom: 24px;
+}
+.announcementTitle{ font-size: 68px; margin: 0 0 12px; line-height:1.06; }
+.announcementCopy{ color:#444; font-size: 18px; line-height:1.55; }
+
+@media (max-width: 900px){
+  .infoBanner{ padding: 16px 20px; margin: 22px 12px 0; }
+  .infoBannerTitle{ font-size: 30px; }
+  .infoBannerText{ font-size: 18px; }
+  .infoBannerLink{ font-size: 42px; }
+  .resultsToast{ left: 12px; right: 12px; max-width: none; }
+  .resultsToastTitle{ font-size: 44px; }
+  .resultsToastText{ font-size: 17px; }
+  .announcementPage{ padding: 28px 22px 24px; }
+  .announcementBack{ font-size: 34px; }
+  .announcementTitle{ font-size: 58px; }
+  .announcementCopy{ font-size: 18px; }
+}
+
 
     /* ---- footer links ---- */
     .footerLinks{
@@ -1106,26 +1181,15 @@
       </div>
     </div>
 
-<div class="statusWrap" id="statusWrapLanding">
-  <div class="progressPanel" id="progressPanelLanding" style="display:none;" aria-live="polite">
-    <div class="progressRing" aria-hidden="true">
-      <svg class="ringSvg" viewBox="0 0 36 36">
-        <path class="ringBg" d="M18 2.0845
-          a 15.9155 15.9155 0 0 1 0 31.831
-          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-        <path class="ringFg" id="progressRingLanding" stroke-dasharray="0, 100" d="M18 2.0845
-          a 15.9155 15.9155 0 0 1 0 31.831
-          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-      </svg>
-      <div class="ringCenter"><span id="progressPctLanding">0%</span></div>
+    <div class="infoBanner" id="landingInfoBanner" style="display:none;">
+      <div class="infoBannerHead">
+        <div>
+          <h2 class="infoBannerTitle" data-i18n="banner_important">Important note:</h2>
+          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+        </div>
+        <button class="infoBannerLink" id="landingKnowMoreBtn" type="button" data-i18n="know_more">Know more</button>
+      </div>
     </div>
-    <div class="progressStage" id="progressStageLanding"></div>
-    <div class="progressSub" id="progressSubLanding"></div>
-  </div>
-
-  <div class="statusLine" id="statusLanding"></div>
-  <div class="metaLine" id="metaLanding"></div>
-</div>
 
     <div class="footerLinks">
       <a href="#" id="helpLink"><span class="ic"></span> <span data-i18n="need_help">Need help?</span></a>
@@ -1136,6 +1200,22 @@
 
   <!-- RESULTS -->
   <section class="resultsShell" id="resultsSection">
+    <div class="resultsToast" id="resultsInfoToast" aria-live="polite">
+      <div class="resultsToastRow">
+        <div>
+          <h3 class="resultsToastTitle" data-i18n="banner_important">Important note:</h3>
+          <p class="resultsToastText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+        </div>
+        <svg class="resultsToastRing" viewBox="0 0 36 36" aria-hidden="true">
+          <path class="resultsToastBg" d="M18 2.0845
+            a 15.9155 15.9155 0 0 1 0 31.831
+            a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+          <path class="resultsToastFg" id="resultsToastRingFg" d="M18 2.0845
+            a 15.9155 15.9155 0 0 1 0 31.831
+            a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+        </svg>
+      </div>
+    </div>
     <div class="resultsTop">
       <div class="resultsTopInner">
         <div class="topLayerWrapper">
@@ -1268,6 +1348,14 @@
 
         <div class="clearSearchBtn"><button class="miniBtn" id="clearBtn" type="button" style="margin-left:auto;" data-i18n="clear">Clear</button></div>
       </div>
+    </div>
+  </section>
+
+  <section class="announcementPage" id="announcementSection">
+    <div class="announcementInner">
+      <button class="announcementBack" id="announcementBackBtn" type="button" data-i18n="go_back">← Go back</button>
+      <h1 class="announcementTitle" data-i18n="announce_title">About the portal, why it exists, and how to use!</h1>
+      <p class="announcementCopy" data-i18n="announce_intro">Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.</p>
     </div>
   </section>
 

@@ -117,6 +117,12 @@ export const I18N = {
     progress_stage_finalize: "Finalizing…",
     progress_ac_context: "निर्वाचन क्षेत्र {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
+    banner_important: "Important note:",
+    banner_text: "Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.",
+    know_more: "Know more",
+    go_back: "← Go back",
+    announce_title: "About the portal, why it exists, and how to use!",
+    announce_intro: "Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.",
 
 
     status_stage0: "स्टेज 0: निर्वाचन क्षेत्र {ac} लोड हो रहा है ({i}/{n})…",
@@ -257,6 +263,12 @@ export const I18N = {
     progress_stage_finalize: "Finalizing…",
     progress_ac_context: "AC {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
+    banner_important: "Important note:",
+    banner_text: "Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.",
+    know_more: "Know more",
+    go_back: "← Go back",
+    announce_title: "About the portal, why it exists, and how to use!",
+    announce_intro: "Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.",
 
 
     status_stage0: "Stage 0: AC {ac} load ho raha hai ({i}/{n})…",
@@ -395,6 +407,12 @@ export const I18N = {
     progress_stage_finalize: "Finalizing…",
     progress_ac_context: "AC {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
+    banner_important: "Important note:",
+    banner_text: "Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.",
+    know_more: "Know more",
+    go_back: "← Go back",
+    announce_title: "About the portal, why it exists, and how to use!",
+    announce_intro: "Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.",
 
 
     status_stage0: "Stage 0: Loading AC {ac} ({i}/{n})…",
