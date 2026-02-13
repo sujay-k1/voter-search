@@ -494,19 +494,16 @@
       display: none;
     }
 
-    .infoBanner{
-      margin: 18px auto 0;
-      max-width: var(--maxw);
-      border: 2px dotted rgba(91,74,163,.28);
-      border-radius: 26px;
-      background: #f7efe9;
-      padding: 18px 24px;
-    }
+    
     .infoBannerHead{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap: 8px;
+      border: 2px dotted rgba(91,74,163,.28);
+      border-radius: 26px;
+      background: #f7efe9;
+      padding: 18px 24px;
     }
     .infoBannerTitle{ font-size: 44px; margin: 0; color:#1f1f1f; font-weight: 900; }
     .infoBannerTitle small{ font-size: 16px; font-weight: 800; display:block; margin-top: 8px; }
@@ -971,6 +968,23 @@
       gap: 4px;
     }
 
+    .langBtnWrapper{
+      width: -webkit-fill-available;
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+    }
+
+    .infoBannerHeadDesktop{
+      margin: 18px auto 0;
+      max-width: 980px;
+      padding: 24px;
+    }
+
+    .infoBanner{
+      display: none;
+    }
+
     @media (max-width: 680px){
       .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
       .seg{justify-content: space-evenly;}
@@ -990,6 +1004,7 @@
       .footerLinks {gap: 8px;}
       #feedbackLink {display: none;}
       #codeLink {display: none;}
+      .infoBannerHeadDesktop{display: none;}
 
       .infoBanner{ padding: 16px; margin: 22px 12px 0; border-radius: 16px;}
       .infoBannerHead{flex-direction: column; align-items: flex-start;}
@@ -1113,18 +1128,28 @@
   <!-- LANDING -->
   <section class="landing" id="landingSection">
     <div class="topbar" aria-label="Language switch">
-      <button class="langBtn active" id="langHi" type="button" aria-pressed="true">
-        <span class="langCheck"></span>
-        <span data-i18n="lang_hi">हिंदी में ढूंढें</span>
-      </button>
-      <button class="langBtn" id="langHinglish" type="button" aria-pressed="false">
-        <span class="langCheck"></span>
-        <span data-i18n="lang_hinglish">Hinglish mein search karein</span>
-      </button>
-      <button class="langBtn" id="langEn" type="button" aria-pressed="false">
-        <span class="langCheck"></span>
-        <span data-i18n="lang_en">English</span>
-      </button>
+      <div class="langBtnWrapper">
+        <button class="langBtn active" id="langHi" type="button" aria-pressed="true">
+          <span class="langCheck"></span>
+          <span data-i18n="lang_hi">हिंदी में ढूंढें</span>
+        </button>
+
+        <button class="langBtn" id="langHinglish" type="button" aria-pressed="false">
+          <span class="langCheck"></span>
+          <span data-i18n="lang_hinglish">Hinglish mein search karein</span>
+        </button>
+        <button class="langBtn" id="langEn" type="button" aria-pressed="false">
+          <span class="langCheck"></span>
+          <span data-i18n="lang_en">English</span>
+        </button>
+      </div>
+      <div class="infoBannerHeadDesktop">
+        <div class="bannerContentWrap">
+          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
+          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+        </div>
+        <button class="infoBannerLink" id="landingKnowMoreBtn" type="button" data-i18n="know_more">Know more</button>
+      </div>
     </div>
 
     <div class="hero">
@@ -1191,6 +1216,8 @@
         </div>
       </div>
     </div>
+
+   
 
     <div class="infoBanner" id="landingInfoBanner" style="display:none;">
       <div class="infoBannerHead">
