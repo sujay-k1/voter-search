@@ -1104,6 +1104,7 @@ const progressPctResults = $("progressPctResults");
 const progressStageResults = $("progressStageResults");
 const progressSubResults = $("progressSubResults");
 const landingInfoBanner = $("landingInfoBanner");
+const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
 const resultsInfoToast = $("resultsInfoToast");
 const resultsToastRingFg = $("resultsToastRingFg");
@@ -1206,6 +1207,15 @@ function maybeShowLandingBanner() {
     seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
   } catch {}
   landingInfoBanner.style.display = seen ? "none" : "block";
+}
+
+function maybeShowLandingBannerDesktop() {
+  if (!landingInfoBannerDesktop) return;
+  let seen = false;
+  try {
+    seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
+  } catch {}
+  landingInfoBannerDesktop.style.display = seen ? "none" : "block";
 }
 
 function hideResultsToast() {
@@ -3838,9 +3848,18 @@ landingKnowMoreBtn?.addEventListener("click", () => {
   showAnnouncementPage();
 });
 
+landingKnowMoreBtn?.addEventListener("click", () => {
+  try {
+    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
+  } catch {}
+  if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
+  showAnnouncementPage();
+});
+
 announcementBackBtn?.addEventListener("click", () => {
   showLanding();
   maybeShowLandingBanner();
+  maybeShowLandingBannerDesktop();
 });
 
 // Language buttons
@@ -3858,6 +3877,7 @@ setIncludeTypingChecked(true);
 setSearchEnabled(false);
 showLanding();
 maybeShowLandingBanner();
+maybeShowLandingBannerDesktop();
 
 updateMoreFiltersEnabled();
 renderFiltersPopoverRoot();
