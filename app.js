@@ -1175,6 +1175,8 @@ function setMeta(msg) {
   if (metaResults) metaResults.textContent = msg ?? "";
 }
 
+// ===== VIEW SWITCHING =====
+
 function showLanding() {
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
@@ -1182,6 +1184,7 @@ function showLanding() {
   // Ensure results UI is restored when user returns.
   resetMobileTableCompactUI();
 }
+
 function showResults() {
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
@@ -2679,6 +2682,8 @@ async function runSearch() {
 
   pagerEl.style.display = "none";
   $("results").innerHTML = "";
+  
+  showLoader();
 
   setResultsProgressVisible(false);
   setBar(0);
