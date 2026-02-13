@@ -506,7 +506,7 @@
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap: 14px;
+      gap: 8px;
     }
     .infoBannerTitle{ font-size: 44px; margin: 0; color:#1f1f1f; font-weight: 900; }
     .infoBannerTitle small{ font-size: 16px; font-weight: 800; display:block; margin-top: 8px; }
@@ -965,6 +965,11 @@
       flex: 1;
       min-width: 0;
     }
+    .bannerContentWrap {
+      display: flex; 
+      flex-direction: column; 
+      gap: 4px;
+    }
 
     @media (max-width: 680px){
       .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
@@ -986,10 +991,11 @@
       #feedbackLink {display: none;}
       #codeLink {display: none;}
 
-      .infoBanner{ padding: 16px 20px; margin: 22px 12px 0; }
-      .infoBannerTitle{ font-size: 30px; }
-      .infoBannerText{ font-size: 18px; }
-      .infoBannerLink{ font-size: 42px; }
+      .infoBanner{ padding: 16px; margin: 22px 12px 0; border-radius: 16px;}
+      .infoBannerHead{flex-direction: column; align-items: flex-start;}
+      .infoBannerTitle{ font-size: 16px; }
+      .infoBannerText{ font-size: 14px; }
+      .infoBannerLink{ font-size: 14px; }
       .resultsToast{ left: 12px; right: 12px; max-width: none; }
       .resultsToastTitle{ font-size: 44px; }
       .resultsToastText{ font-size: 17px; }
@@ -997,6 +1003,7 @@
       .announcementBack{ font-size: 34px; }
       .announcementTitle{ font-size: 58px; }
       .announcementCopy{ font-size: 18px; }
+      .bannerContentWrap {display: flex; flex-direction: column; gap: 4px;}
 
 
       /* Mobile-only: collapse scope + filters on table scroll */
@@ -1187,8 +1194,8 @@
 
     <div class="infoBanner" id="landingInfoBanner" style="display:none;">
       <div class="infoBannerHead">
-        <div>
-          <h2 class="infoBannerTitle" data-i18n="banner_important">Important note:</h2>
+        <div class="bannerContentWrap">
+          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
           <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
         </div>
         <button class="infoBannerLink" id="landingKnowMoreBtn" type="button" data-i18n="know_more">Know more</button>
