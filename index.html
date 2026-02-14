@@ -42,15 +42,17 @@
     /* ---- top language row ---- */
     .topbar{
       
-      margin: 18px auto 0;
-      padding: 0 18px;
+      margin: 0px auto 0;
+      padding: 24 18px;
       display:flex;
       justify-content:center;
-      gap: 36px;
       color: var(--accent);
       font-weight: 600;
       font-size: 16px;
       user-select:none;
+      max-width: var(--maxw);
+      display: flex;
+      width: -webkit-fill-available;
     }
     .langBtn{
       border: 0;
@@ -497,23 +499,24 @@
     
     .infoBannerHead{
       display:flex;
-      align-items:center;
+      align-items:flex-start;
       justify-content:space-between;
       gap: 8px;
       border: 2px dotted rgba(91,74,163,.28);
-      border-radius: 26px;
+      border-radius: 16px;
       background: #f7efe9;
-      padding: 18px 24px;
+      padding: 16px;
+      flex-direction: column;
     }
-    .infoBannerTitle{ font-size: 44px; margin: 0; color:#1f1f1f; font-weight: 900; }
+    .infoBannerTitle{ font-size: 20px; margin: 0; color:#1f1f1f; font-weight: 700; }
     .infoBannerTitle small{ font-size: 16px; font-weight: 800; display:block; margin-top: 8px; }
-    .infoBannerText{ margin: 0; color:#2a2a2a; font-size: 18px; line-height: 1.45; }
+    .infoBannerText{ margin: 0; color:#2a2a2a; font-size: 16px; line-height: 1.45; }
     .infoBannerLink{
       border:0;
       background: transparent;
       color: var(--accent);
       font-weight: 800;
-      font-size: 20px;
+      font-size: 14px;
       cursor:pointer;
       white-space: nowrap;
       padding: 0;
@@ -965,21 +968,23 @@
     .bannerContentWrap {
       display: flex; 
       flex-direction: column; 
-      gap: 4px;
+      gap: 12px;
     }
 
     .langBtnWrapper{
       width: -webkit-fill-available;
       display: flex;
       flex-direction: row;
-      justify-content: center;
+      justify-content: space-evenly;
+      max-width: 500px;
+      min-width: 430px;
     }
 
     .infoBannerDesktop{
       display: block;
-      margin: 18px auto 0;
-      max-width: 980px;
-      padding: 24px;
+      margin: 0px 0px 0px auto;
+      max-width: 470px;
+      padding: 0px 0px 0px 24px;
     }
 
     .infoBanner{
