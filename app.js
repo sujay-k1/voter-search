@@ -1206,7 +1206,7 @@ function maybeShowLandingBanner() {
   try {
     seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
   } catch {}
-  landingInfoBanner.style.display = seen ? "none" : "block";
+  landingInfoBanner.style.display = seen ? "none" : "";
 }
 
 function maybeShowLandingBannerDesktop() {
@@ -1215,7 +1215,7 @@ function maybeShowLandingBannerDesktop() {
   try {
     seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
   } catch {}
-  landingInfoBannerDesktop.style.display = seen ? "none" : "block";
+  landingInfoBannerDesktop.style.display = seen ? "none" : "";
 }
 
 function hideResultsToast() {
