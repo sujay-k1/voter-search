@@ -1228,7 +1228,7 @@ function hideResultsToast() {
     resultsToastRaf = null;
   }
   if (resultsInfoToast) resultsInfoToast.style.display = "none";
-  if (resultsToastRingFg) resultsToastRingFg.setAttribute("stroke-dasharray", "100 100");
+  if (resultsToastRingFg) resultsToastRingFg.setAttribute("stroke-dasharray", "0 100");
 }
 
 function maybeShowResultsToastOnce() {
