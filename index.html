@@ -550,7 +550,7 @@
     .resultsToastRing{ width: 36px; height: 36px; flex: 0 0 auto; transform: rotate(-90deg); }
     .resultsToastBg{ fill:none; stroke: rgba(91,74,163,.20); stroke-width: 3.2; }
     .resultsToastFg{ fill:none; stroke: rgba(91,74,163,.60); stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 0 100; }
-    .resultsToastTitle{ margin:0; font-size: 40px; font-weight: 900; color:#1f1f1f; }
+    .resultsToastTitle{ margin:0; font-size: 20px; font-weight: 900; color:#1f1f1f; }
     .resultsToastText{ margin: 2px 0 0; font-size: 16px; line-height: 1.4; color:#1f1f1f; }
 
     .announcementPage{
@@ -1030,7 +1030,7 @@
       .infoBannerText{ font-size: 14px; }
       .infoBannerLink{ font-size: 14px; }
       .resultsToast{ left: 12px; right: 12px; max-width: none; }
-      .resultsToastTitle{ font-size: 44px; }
+      .resultsToastTitle{ font-size: 16px; }
       .resultsToastText{ font-size: 17px; }
       .announcementPage{ padding: 28px 22px 24px; }
       .announcementBack{ font-size: 34px; }
@@ -1260,18 +1260,18 @@
   <section class="resultsShell" id="resultsSection">
     <div class="resultsToast" id="resultsInfoToast" aria-live="polite">
       <div class="resultsToastRow">
-        <div>
+        <div style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; width: 100%;">
           <h3 class="resultsToastTitle" data-i18n="banner_important">Important note:</h3>
-          <p class="resultsToastText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+          <svg class="resultsToastRing" viewBox="0 0 36 36" aria-hidden="true">
+            <path class="resultsToastBg" d="M18 2.0845
+              a 15.9155 15.9155 0 0 1 0 31.831
+              a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+            <path class="resultsToastFg" id="resultsToastRingFg" d="M18 2.0845
+              a 15.9155 15.9155 0 0 1 0 31.831
+              a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+          </svg>
         </div>
-        <svg class="resultsToastRing" viewBox="0 0 36 36" aria-hidden="true">
-          <path class="resultsToastBg" d="M18 2.0845
-            a 15.9155 15.9155 0 0 1 0 31.831
-            a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-          <path class="resultsToastFg" id="resultsToastRingFg" d="M18 2.0845
-            a 15.9155 15.9155 0 0 1 0 31.831
-            a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-        </svg>
+        <p class="resultsToastText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
       </div>
     </div>
     <div class="resultsTop">
