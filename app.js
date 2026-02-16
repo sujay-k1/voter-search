@@ -1241,13 +1241,36 @@ function maybeShowResultsToastOnce() {
   if (seen) return;
 
   resultsInfoToast.style.display = "block";
+
+  const path = resultsToastRingFg;
+
+  // --- CRITICAL: use real path length ---
+  const length = path.getTotalLength();
+
+  // Force reset state every time
+  path.style.transition = "none";
+  path.style.strokeDasharray = length;
+  path.style.strokeDashoffset = length;
+
+  // Force layout so browser applies reset immediately
+  path.getBoundingClientRect();
+
   const ms = 3000;
   const t0 = performance.now();
+
   const tick = (now) => {
     const p = Math.max(0, Math.min(1, (now - t0) / ms));
-    resultsToastRingFg.setAttribute("stroke-dasharray", `${p * 100} 100`);
-    if (p < 1) resultsToastRaf = requestAnimationFrame(tick);
+    const offset = length * (1 - p);
+    path.style.strokeDashoffset = offset;
+
+    // DEBUG (remove later)
+    // console.log("progress:", p, "offset:", offset);
+
+    if (p < 1) {
+      resultsToastRaf = requestAnimationFrame(tick);
+    }
   };
+
   resultsToastRaf = requestAnimationFrame(tick);
 
   resultsToastTimer = setTimeout(() => {
@@ -1258,9 +1281,11 @@ function maybeShowResultsToastOnce() {
     localStorage.setItem(SEEN_RESULTS_BANNER_KEY, "1");
   } catch {}
 }
+
 function isResultsVisible() {
   return window.getComputedStyle(resultsSection).display !== "none";
 }
+
 
 // ------- Mobile-only: collapse header rows when the results table is scrolled -------
 function isNarrowMobileForTableCompact() {
