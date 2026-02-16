@@ -42,15 +42,17 @@
     /* ---- top language row ---- */
     .topbar{
       
-      margin: 18px auto 0;
-      padding: 0 18px;
+      margin: 0px auto 0;
+      padding: 24px 18px;
       display:flex;
       justify-content:center;
-      gap: 36px;
       color: var(--accent);
       font-weight: 600;
       font-size: 16px;
       user-select:none;
+      max-width: var(--maxw);
+      display: flex;
+      width: -webkit-fill-available;
     }
     .langBtn{
       border: 0;
@@ -394,6 +396,17 @@
       user-select:none;
     }
     .chk input{ width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+    .chkResults{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      font-size: 16px;
+      font-weight: 500;
+      color: #1a1a1a;
+      white-space: nowrap;
+      user-select:none;
+    }
+    .chkResults input{ width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
     .tip{ font-size: 14px; color: #1f1f1f; font-weight: 400; width: -webkit-fill-available; text-align: right}
     .tip b{ font-weight: 700; }
 
@@ -413,86 +426,147 @@
       margin-top: 6px;
       min-height: 18px;
     }
-.metaLine{
-  color: rgba(0,0,0,.58);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.35;
-  margin-top: 2px;
-  min-height: 16px;
-}
+    .metaLine{
+      color: rgba(0,0,0,.58);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.35;
+      margin-top: 2px;
+      min-height: 16px;
+    }
 
-/* ---- minimal progress (search ETA) ---- */
-.progressPanel{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap: 8px;
-  padding: 10px 0 2px;
-}
-.progressRing{
-  width: 58px;
-  height: 58px;
-  position: relative;
-}
-.ringSvg{
-  width: 58px;
-  height: 58px;
-  display:block;
-  transform: rotate(-90deg);
-}
-.ringBg{
-  fill:none;
-  stroke: rgba(0,0,0,.12);
-  stroke-width: 3.4;
-}
-.ringFg{
-  fill:none;
-  stroke: var(--accent);
-  stroke-width: 3.4;
-  stroke-linecap: round;
-  transition: stroke-dasharray 220ms ease;
-}
-.ringCenter{
-  position:absolute;
-  inset: 0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-weight: 900;
-  font-size: 14px;
-  color: #2a2a2a;
-  pointer-events:none;
-}
-.progressStage{
-  font-weight: 900;
-  font-size: 14px;
-  color: #2a2a2a;
-  text-align:center;
-}
-.progressSub{
-  font-weight: 700;
-  font-size: 12px;
-  color: rgba(0,0,0,.55);
-  text-align:center;
-}
+    /* ---- minimal progress (search ETA) ---- */
+    .progressPanel{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap: 8px;
+      padding: 10px 0 2px;
+    }
+    .progressRing{
+      width: 58px;
+      height: 58px;
+      position: relative;
+    }
+    .ringSvg{
+      width: 58px;
+      height: 58px;
+      display:block;
+      transform: rotate(-90deg);
+    }
+    .ringBg{
+      fill:none;
+      stroke: rgba(0,0,0,.12);
+      stroke-width: 3.4;
+    }
+    .ringFg{
+      fill:none;
+      stroke: var(--accent);
+      stroke-width: 3.4;
+      stroke-linecap: round;
+      transition: stroke-dasharray 220ms ease;
+    }
+    .ringCenter{
+      position:absolute;
+      inset: 0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight: 900;
+      font-size: 14px;
+      color: #2a2a2a;
+      pointer-events:none;
+    }
+    .progressStage{
+      font-weight: 900;
+      font-size: 14px;
+      color: #2a2a2a;
+      text-align:center;
+    }
+    .progressSub{
+      font-weight: 700;
+      font-size: 12px;
+      color: rgba(0,0,0,.55);
+      text-align:center;
+    }
 
-.tableProgressOverlay{
-  position: absolute;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255,255,255,.78);
-  z-index: 6;
-  pointer-events: none;
-}
-.tableProgressOverlay .progressPanel{
-  padding: 0;
-}
-.tableProgressOverlay .progressSub{
-  display: none;
-}
+    .tableProgressOverlay{
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,.78);
+      z-index: 6;
+      pointer-events: none;
+    }
+    .tableProgressOverlay .progressPanel{
+      padding: 0;
+    }
+    .tableProgressOverlay .progressSub{
+      display: none;
+    }
+
+    
+    .infoBannerHead{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 8px;
+      border: 2px dotted rgba(91,74,163,.28);
+      border-radius: 16px;
+      background: #f7efe9;
+      padding: 16px;
+      flex-direction: column;
+    }
+    .infoBannerTitle{ font-size: 20px; margin: 0; color:#1f1f1f; font-weight: 700; }
+    .infoBannerTitle small{ font-size: 16px; font-weight: 800; display:block; margin-top: 8px; }
+    .infoBannerText{ margin: 0; color:#2a2a2a; font-size: 16px; line-height: 1.45; }
+    .infoBannerLink{
+      border:0;
+      background: transparent;
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 14px;
+      cursor:pointer;
+      white-space: nowrap;
+      padding: 0;
+    }
+
+    .resultsToast{
+      position: absolute;
+      right: 18px;
+      top: 12px;
+      z-index: 25;
+      max-width: 410px;
+      border: 2px dotted rgba(91,74,163,.28);
+      border-radius: 20px;
+      background: #f7efe9;
+      padding: 16px 18px;
+      display: none;
+      box-shadow: var(--shadow);
+    }
+    .resultsToastRow{ display:flex; align-items:flex-start; gap: 8px; flex-direction: column;}
+    .resultsToastRing{ width: 36px; height: 36px; flex: 0 0 auto; transform: rotate(-90deg); }
+    .resultsToastBg{ fill:none; stroke: rgba(91,74,163,.20); stroke-width: 3.2; }
+    .resultsToastFg{ fill:none; stroke: rgba(91,74,163,.60); stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 0 100; }
+    .resultsToastTitle{ margin:0; font-size: 20px; font-weight: 900; color:#1f1f1f; }
+    .resultsToastText{ margin: 2px 0 0; font-size: 16px; line-height: 1.4; color:#1f1f1f; }
+
+    .announcementPage{
+      min-height: 100dvh;
+      display:none;
+      padding: 42px 36px 24px;
+    }
+    .announcementInner{ max-width: 980px; margin: 0 auto; }
+    .announcementBack{
+      border:0; background:transparent; color:var(--accent); font-weight:700;
+      font-size: 34px; cursor:pointer; padding: 0; margin-bottom: 24px;
+    }
+    .announcementTitle{ font-size: 68px; margin: 0 0 12px; line-height:1.06; }
+    .announcementCopy{ color:#444; font-size: 18px; line-height:1.55; }
+
+
 
 
     /* ---- footer links ---- */
@@ -902,73 +976,118 @@
       flex: 1;
       min-width: 0;
     }
+    .bannerContentWrap {
+      display: flex; 
+      flex-direction: column; 
+      gap: 12px;
+    }
 
-@media (max-width: 680px){
-  .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
-  .seg{justify-content: space-evenly;}
-  .clearSearchBtn{position: absolute; right: -10px; z-index: 60; top: calc(-90.5dvh); width: 120px; display: flex; flex}
-  .resultsBody{z-index: 40; height: calc(100dvh - 333px); padding: 12px 12px 0px; margin: 0px 0px 0;}
-  .pager{z-index: 50; font-size: x-small; flex-wrap: nowrap;}
-  .filtersLeft{ justify-content: space-between; width: -webkit-fill-available;}
-  .acShell{ min-width: 0;}
-  .seg button{ min-width: 0; width: 33.33vw; max-width:none; }
-  .scopeWrap{gap: 4px;}
-  .chk{width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
-  .resultsMetaRow{gap: 0px;}
-  .resultsTopInner{ margin: 0px 8px; margin: 0px;}
-  .resultsMetaRow { margin: 12px 8px 0;}
-  .resultsTop {padding: 12px;}
+    .langBtnWrapper{
+      width: -webkit-fill-available;
+      display: flex;
+      flex-direction: row;
+      justify-content: space-evenly;
+      max-width: 500px;
+      min-width: 430px;
+    }
+
+    .infoBannerDesktop{
+      display: block;
+      margin: 0px 0px 0px auto;
+      max-width: 470px;
+      padding: 0px 0px 0px 24px;
+    }
+
+    .infoBanner{
+      display: none;
+    }
+
+    @media (max-width: 680px){
+      .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
+      .seg{justify-content: space-evenly;}
+      .clearSearchBtn{position: absolute; right: -10px; z-index: 60; top: calc(-90.5dvh); width: 120px; display: flex; flex}
+      .resultsBody{z-index: 40; height: calc(100dvh - 333px); padding: 12px 12px 0px; margin: 0px 0px 0;}
+      .pager{z-index: 50; font-size: x-small; flex-wrap: nowrap;}
+      .filtersLeft{ justify-content: space-between; width: -webkit-fill-available;}
+      .acShell{ min-width: 0;}
+      .seg button{ min-width: 0; width: 33.33vw; max-width:none; padding: 12px 0px;}
+      .scopeWrap{gap: 4px;}
+      .chk{justify-content: center; width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
+      .chkResults{width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
+      .resultsMetaRow{gap: 0px;}
+      .resultsTopInner{ margin: 0px 8px; margin: 0px;}
+      .resultsMetaRow { margin: 12px 8px 0;}
+      .resultsTop {padding: 12px;}
+      .topbar{gap: 8px;}
+      .footerLinks {gap: 8px;}
+      #feedbackLink {display: none;}
+      #codeLink {display: none;}
+      .infoBannerDesktop{display: none;}
+
+      .infoBanner{ padding: 16px; margin: 0px 12px; border-radius: 16px; display: block;}
+      .infoBannerHead{flex-direction: column; align-items: flex-start;}
+      .infoBannerTitle{ font-size: 16px; }
+      .infoBannerText{ font-size: 14px; }
+      .infoBannerLink{ font-size: 14px; }
+      .resultsToast{ left: 12px; right: 12px; max-width: none; }
+      .resultsToastTitle{ font-size: 16px; }
+      .resultsToastText{ font-size: 17px; }
+      .announcementPage{ padding: 28px 22px 24px; }
+      .announcementBack{ font-size: 34px; }
+      .announcementTitle{ font-size: 58px; }
+      .announcementCopy{ font-size: 18px; }
+      .bannerContentWrap {display: flex; flex-direction: column; gap: 4px;}
 
 
-  /* Mobile-only: collapse scope + filters on table scroll */
-  #resultsSection .scopeWrap,
-  #resultsSection .filtersRow{
-   /* overflow: hidden; */
-    max-height: 260px;
-    opacity: 1;
-    transform: translateY(0);
-    transition: max-height 200ms ease, opacity 200ms ease, transform 200ms ease, margin 200ms ease;
-  }
-  #resultsSection.mobileCompact .scopeWrap,
-  #resultsSection.mobileCompact .filtersRow{
-    max-height: 0px;
-    opacity: 0;
-    transform: translateY(-6px);
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    pointer-events: none;
-  }
-  #resultsSection.mobileCompact .resultsTop{ padding-bottom: 6px; }
+      /* Mobile-only: collapse scope + filters on table scroll */
+      #resultsSection .scopeWrap,
+      #resultsSection .filtersRow{
+      /* overflow: hidden; */
+        max-height: 260px;
+        opacity: 1;
+        transform: translateY(0);
+        transition: max-height 200ms ease, opacity 200ms ease, transform 200ms ease, margin 200ms ease;
+      }
+      #resultsSection.mobileCompact .scopeWrap,
+      #resultsSection.mobileCompact .filtersRow{
+        max-height: 0px;
+        opacity: 0;
+        transform: translateY(-6px);
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        pointer-events: none;
+      }
+      #resultsSection.mobileCompact .resultsTop{ padding-bottom: 6px; }
 
-  /* Scroll-to-top floating action button (shown only when compact) */
-  #scrollTopFab{
-    display:flex;
-    position: fixed;
-    align-items:center;
-    justify-content:center;
-    width: 48px;
-    height: 48px;
-    border-radius: 999px;
-    border: 1px solid rgba(0,0,0,.12);
-    background: rgba(91,74,163,.95);
-    color: #fff;
-    box-shadow: var(--shadow);
-    cursor: pointer;
-    position: absolute;
-    right: 28px;
-    bottom: 102px;
-    z-index: 60;
-    opacity: 0;
-    transform: translateY(8px);
-    pointer-events: none;
-    transition: opacity 200ms ease, transform 200ms ease;
-  }
-  #resultsSection.mobileCompact #scrollTopFab{
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
-  }
-}
+      /* Scroll-to-top floating action button (shown only when compact) */
+      #scrollTopFab{
+        display:flex;
+        position: fixed;
+        align-items:center;
+        justify-content:center;
+        width: 48px;
+        height: 48px;
+        border-radius: 999px;
+        border: 1px solid rgba(0,0,0,.12);
+        background: rgba(91,74,163,.95);
+        color: #fff;
+        box-shadow: var(--shadow);
+        cursor: pointer;
+        position: absolute;
+        right: 28px;
+        bottom: 102px;
+        z-index: 60;
+        opacity: 0;
+        transform: translateY(8px);
+        pointer-events: none;
+        transition: opacity 200ms ease, transform 200ms ease;
+      }
+      #resultsSection.mobileCompact #scrollTopFab{
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+    }
 
     @media (max-width: 900px){
       .searchRow{ flex-direction:column; gap: 14px; }
@@ -1027,18 +1146,30 @@
   <!-- LANDING -->
   <section class="landing" id="landingSection">
     <div class="topbar" aria-label="Language switch">
-      <button class="langBtn active" id="langHi" type="button" aria-pressed="true">
-        <span class="langCheck"></span>
-        <span data-i18n="lang_hi">हिंदी में ढूंढें</span>
-      </button>
-      <button class="langBtn" id="langHinglish" type="button" aria-pressed="false">
-        <span class="langCheck"></span>
-        <span data-i18n="lang_hinglish">Hinglish mein search karein</span>
-      </button>
-      <button class="langBtn" id="langEn" type="button" aria-pressed="false">
-        <span class="langCheck"></span>
-        <span data-i18n="lang_en">English</span>
-      </button>
+      <div class="langBtnWrapper">
+        <button class="langBtn active" id="langHi" type="button" aria-pressed="true">
+          <span class="langCheck"></span>
+          <span data-i18n="lang_hi">हिंदी में ढूंढें</span>
+        </button>
+
+        <button class="langBtn" id="langHinglish" type="button" aria-pressed="false">
+          <span class="langCheck"></span>
+          <span data-i18n="lang_hinglish">Hinglish mein search karein</span>
+        </button>
+        <button class="langBtn" id="langEn" type="button" aria-pressed="false">
+          <span class="langCheck"></span>
+          <span data-i18n="lang_en">English</span>
+        </button>
+      </div>
+      <div class="infoBannerDesktop" id="landingInfoBannerDesktop">
+      <div class="infoBannerHead">
+        <div class="bannerContentWrap">
+          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
+          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+        </div>
+        <button class="infoBannerLink" id="landingKnowMoreBtn" type="button" data-i18n="know_more">Know more</button>
+      </div>
+    </div>
     </div>
 
     <div class="hero">
@@ -1106,26 +1237,17 @@
       </div>
     </div>
 
-<div class="statusWrap" id="statusWrapLanding">
-  <div class="progressPanel" id="progressPanelLanding" style="display:none;" aria-live="polite">
-    <div class="progressRing" aria-hidden="true">
-      <svg class="ringSvg" viewBox="0 0 36 36">
-        <path class="ringBg" d="M18 2.0845
-          a 15.9155 15.9155 0 0 1 0 31.831
-          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-        <path class="ringFg" id="progressRingLanding" stroke-dasharray="0, 100" d="M18 2.0845
-          a 15.9155 15.9155 0 0 1 0 31.831
-          a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-      </svg>
-      <div class="ringCenter"><span id="progressPctLanding">0%</span></div>
-    </div>
-    <div class="progressStage" id="progressStageLanding"></div>
-    <div class="progressSub" id="progressSubLanding"></div>
-  </div>
+   
 
-  <div class="statusLine" id="statusLanding"></div>
-  <div class="metaLine" id="metaLanding"></div>
-</div>
+    <div class="infoBanner" id="landingInfoBanner">
+      <div class="infoBannerHead">
+        <div class="bannerContentWrap">
+          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
+          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+        </div>
+        <button class="infoBannerLink" id="landingKnowMoreBtn" type="button" data-i18n="know_more">Know more</button>
+      </div>
+    </div>
 
     <div class="footerLinks">
       <a href="#" id="helpLink"><span class="ic"></span> <span data-i18n="need_help">Need help?</span></a>
@@ -1136,6 +1258,22 @@
 
   <!-- RESULTS -->
   <section class="resultsShell" id="resultsSection">
+    <div class="resultsToast" id="resultsInfoToast" aria-live="polite">
+      <div class="resultsToastRow">
+        <div style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; width: 100%;">
+          <h3 class="resultsToastTitle" data-i18n="banner_important">Important note:</h3>
+          <svg class="resultsToastRing" viewBox="0 0 36 36" aria-hidden="true">
+            <path class="resultsToastBg" d="M18 2.0845
+              a 15.9155 15.9155 0 0 1 0 31.831
+              a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+            <path pathLength="100" class="resultsToastFg" id="resultsToastRingFg" d="M18 2.0845
+              a 15.9155 15.9155 0 0 1 0 31.831
+              a 15.9155 15.9155 0 0 1 0 -31.831"></path>
+          </svg>
+        </div>
+        <p class="resultsToastText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+      </div>
+    </div>
     <div class="resultsTop">
       <div class="resultsTopInner">
         <div class="topLayerWrapper">
@@ -1209,7 +1347,7 @@
           </div>
         </div>
 
-        <label class="chk">
+        <label class="chkResults">
           <input type="checkbox" id="exactToggleResults" checked />
           <span data-i18n="include_typing">Include typing mistakes</span>
         </label>
@@ -1268,6 +1406,14 @@
 
         <div class="clearSearchBtn"><button class="miniBtn" id="clearBtn" type="button" style="margin-left:auto;" data-i18n="clear">Clear</button></div>
       </div>
+    </div>
+  </section>
+
+  <section class="announcementPage" id="announcementSection">
+    <div class="announcementInner">
+      <button class="announcementBack" id="announcementBackBtn" type="button" data-i18n="go_back">← Go back</button>
+      <h1 class="announcementTitle" data-i18n="announce_title">About the portal, why it exists, and how to use!</h1>
+      <p class="announcementCopy" data-i18n="announce_intro">Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.</p>
     </div>
   </section>
 

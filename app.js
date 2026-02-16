@@ -1103,6 +1103,19 @@ const progressRingResults = $("progressRingResults");
 const progressPctResults = $("progressPctResults");
 const progressStageResults = $("progressStageResults");
 const progressSubResults = $("progressSubResults");
+const landingInfoBanner = $("landingInfoBanner");
+const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
+const landingKnowMoreBtn = $("landingKnowMoreBtn");
+const resultsInfoToast = $("resultsInfoToast");
+const resultsToastRingFg = $("resultsToastRingFg");
+const announcementSection = $("announcementSection");
+const announcementBackBtn = $("announcementBackBtn");
+
+const SEEN_LANDING_BANNER_KEY = "sir_seen_landing_banner_v1";
+const SEEN_RESULTS_BANNER_KEY = "sir_seen_results_banner_v1";
+
+let resultsToastTimer = null;
+let resultsToastRaf = null;
 
 function setStatus(msg) {
   if (statusLanding) statusLanding.textContent = msg ?? "";
@@ -1168,27 +1181,111 @@ function setMeta(msg) {
 function showLanding() {
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
-
-  // Always ensure loader is hidden when returning
-  hideLoader();
-
+  if (announcementSection) announcementSection.style.display = "none";
+  // Ensure results UI is restored when user returns.
   resetMobileTableCompactUI();
 }
 
 function showResults() {
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
+  if (announcementSection) announcementSection.style.display = "none";
+  // Sync compact UI state (in case user navigates back to results).
+  if (tableRegion) setMobileTableCompact(tableRegion.scrollTop > 8);
+}
 
-  // Ensure loader is hidden once results are visible
-  hideLoader();
+function showAnnouncementPage() {
+  landingSection.style.display = "none";
+  resultsSection.style.display = "none";
+  if (announcementSection) announcementSection.style.display = "block";
+}
 
-  if (tableRegion)
-    setMobileTableCompact(tableRegion.scrollTop > 8);
+function maybeShowLandingBanner() {
+  if (!landingInfoBanner) return;
+  let seen = false;
+  try {
+    seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
+  } catch {}
+  landingInfoBanner.style.display = seen ? "none" : "";
+}
+
+function maybeShowLandingBannerDesktop() {
+  if (!landingInfoBannerDesktop) return;
+  let seen = false;
+  try {
+    seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
+  } catch {}
+  landingInfoBannerDesktop.style.display = seen ? "none" : "";
+}
+
+function hideResultsToast() {
+  if (resultsToastTimer) {
+    clearTimeout(resultsToastTimer);
+    resultsToastTimer = null;
+  }
+  if (resultsToastRaf) {
+    cancelAnimationFrame(resultsToastRaf);
+    resultsToastRaf = null;
+  }
+  if (resultsInfoToast) resultsInfoToast.style.display = "none";
+  if (resultsToastRingFg) resultsToastRingFg.setAttribute("stroke-dasharray", "0 100");
+}
+
+function maybeShowResultsToastOnce() {
+  if (!resultsInfoToast || !resultsToastRingFg) return;
+
+  let seen = false;
+  try {
+    seen = localStorage.getItem(SEEN_RESULTS_BANNER_KEY) === "1";
+  } catch {}
+  if (seen) return;
+
+  resultsInfoToast.style.display = "block";
+
+  const path = resultsToastRingFg;
+
+  // --- CRITICAL: use real path length ---
+  const length = path.getTotalLength();
+
+  // Force reset state every time
+  path.style.transition = "none";
+  path.style.strokeDasharray = length;
+  path.style.strokeDashoffset = length;
+
+  // Force layout so browser applies reset immediately
+  path.getBoundingClientRect();
+
+  const ms = 3000;
+  const t0 = performance.now();
+
+  const tick = (now) => {
+    const p = Math.max(0, Math.min(1, (now - t0) / ms));
+    const offset = length * (1 - p);
+    path.style.strokeDashoffset = offset;
+
+    // DEBUG (remove later)
+    // console.log("progress:", p, "offset:", offset);
+
+    if (p < 1) {
+      resultsToastRaf = requestAnimationFrame(tick);
+    }
+  };
+
+  resultsToastRaf = requestAnimationFrame(tick);
+
+  resultsToastTimer = setTimeout(() => {
+    hideResultsToast();
+  }, ms);
+
+  try {
+    localStorage.setItem(SEEN_RESULTS_BANNER_KEY, "1");
+  } catch {}
 }
 
 function isResultsVisible() {
   return window.getComputedStyle(resultsSection).display !== "none";
 }
+
 
 // ------- Mobile-only: collapse header rows when the results table is scrolled -------
 function isNarrowMobileForTableCompact() {
@@ -2652,6 +2749,7 @@ async function runSearch() {
 
   showResults();
   resultsCountEl.textContent = "0";
+  maybeShowResultsToastOnce();
   setResultsProgressVisible(true);
 
   // Cancel/ignore older searches.
@@ -3767,6 +3865,28 @@ pageSizeBtn.onclick = () => {
   else openPageSizePopover();
 };
 
+landingKnowMoreBtn?.addEventListener("click", () => {
+  try {
+    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
+  } catch {}
+  if (landingInfoBanner) landingInfoBanner.style.display = "none";
+  showAnnouncementPage();
+});
+
+landingKnowMoreBtn?.addEventListener("click", () => {
+  try {
+    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
+  } catch {}
+  if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
+  showAnnouncementPage();
+});
+
+announcementBackBtn?.addEventListener("click", () => {
+  showLanding();
+  maybeShowLandingBanner();
+  maybeShowLandingBannerDesktop();
+});
+
 // Language buttons
 $("langHi")?.addEventListener("click", () => setLanguage(LANG.HI));
 $("langHinglish")?.addEventListener("click", () => setLanguage(LANG.HINGLISH));
@@ -3781,6 +3901,8 @@ setIncludeTypingChecked(true);
 
 setSearchEnabled(false);
 showLanding();
+maybeShowLandingBanner();
+maybeShowLandingBannerDesktop();
 
 updateMoreFiltersEnabled();
 renderFiltersPopoverRoot();
