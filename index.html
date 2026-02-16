@@ -43,7 +43,7 @@
     .topbar{
       
       margin: 0px auto 0;
-      padding: 24 18px;
+      padding: 24px 18px;
       display:flex;
       justify-content:center;
       color: var(--accent);
@@ -396,6 +396,17 @@
       user-select:none;
     }
     .chk input{ width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+    .chkResults{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      font-size: 16px;
+      font-weight: 500;
+      color: #1a1a1a;
+      white-space: nowrap;
+      user-select:none;
+    }
+    .chkResults input{ width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
     .tip{ font-size: 14px; color: #1f1f1f; font-weight: 400; width: -webkit-fill-available; text-align: right}
     .tip b{ font-weight: 700; }
 
@@ -1002,6 +1013,7 @@
       .seg button{ min-width: 0; width: 33.33vw; max-width:none; }
       .scopeWrap{gap: 4px;}
       .chk{width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
+      .chkResults{justify-content: center; width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
       .resultsMetaRow{gap: 0px;}
       .resultsTopInner{ margin: 0px 8px; margin: 0px;}
       .resultsMetaRow { margin: 12px 8px 0;}
@@ -1335,7 +1347,7 @@
           </div>
         </div>
 
-        <label class="chk">
+        <label class="chkResults">
           <input type="checkbox" id="exactToggleResults" checked />
           <span data-i18n="include_typing">Include typing mistakes</span>
         </label>
