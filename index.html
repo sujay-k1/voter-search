@@ -464,7 +464,7 @@
       stroke: var(--accent);
       stroke-width: 3.4;
       stroke-linecap: round;
-      transition: stroke-dasharray 3000ms linear;
+      transition: stroke-dasharray 220ms ease;
     }
     .ringCenter{
       position:absolute;
@@ -667,7 +667,7 @@
     .seg button{
       border: 0;
       background: transparent;
-      padding: 10px 0px;
+      padding: 10px 16px;
       font-weight: 500;
       font-size: 14px;
       cursor:pointer;
@@ -1010,7 +1010,7 @@
       .pager{z-index: 50; font-size: x-small; flex-wrap: nowrap;}
       .filtersLeft{ justify-content: space-between; width: -webkit-fill-available;}
       .acShell{ min-width: 0;}
-      .seg button{ min-width: 0; width: 33.33vw; max-width:none; }
+      .seg button{ min-width: 0; width: 33.33vw; max-width:none; padding: 12px 0px;}
       .scopeWrap{gap: 4px;}
       .chk{justify-content: center; width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
       .chkResults{width: -webkit-fill-available; font-size: 13px; font-weight: 500;}
@@ -1375,7 +1375,7 @@
                 <path class="ringBg" d="M18 2.0845
                   a 15.9155 15.9155 0 0 1 0 31.831
                   a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-                <path class="ringFg" id="progressRingResults" stroke-dasharray="0 100" d="M18 2.0845
+                <path class="ringFg" id="progressRingResults" stroke-dasharray="0, 100" d="M18 2.0845
                   a 15.9155 15.9155 0 0 1 0 31.831
                   a 15.9155 15.9155 0 0 1 0 -31.831"></path>
               </svg>
