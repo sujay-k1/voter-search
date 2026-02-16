@@ -1167,7 +1167,7 @@ function setBar(pct) {
   const safe = Number.isFinite(Number(pct)) ? Number(pct) : 0;
   const clamped = Math.max(0, Math.min(100, safe));
   const rounded = Math.round(clamped);
-  if (progressRingResults) progressRingResults.setAttribute("stroke-dasharray", `${clamped}, 100`);
+  if (progressRingResults) progressRingResults.style.strokeDasharray = `${clamped} 100`;
   if (progressPctResults) progressPctResults.textContent = `${rounded}%`;
 }
 

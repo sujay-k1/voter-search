@@ -464,7 +464,7 @@
       stroke: var(--accent);
       stroke-width: 3.4;
       stroke-linecap: round;
-      transition: stroke-dasharray 220ms ease;
+      transition: stroke-dasharray 3000ms linear;
     }
     .ringCenter{
       position:absolute;
@@ -546,7 +546,7 @@
       display: none;
       box-shadow: var(--shadow);
     }
-    .resultsToastRow{ display:flex; align-items:flex-start; gap: 14px; flex-direction: column;}
+    .resultsToastRow{ display:flex; align-items:flex-start; gap: 8px; flex-direction: column;}
     .resultsToastRing{ width: 36px; height: 36px; flex: 0 0 auto; transform: rotate(-90deg); }
     .resultsToastBg{ fill:none; stroke: rgba(91,74,163,.20); stroke-width: 3.2; }
     .resultsToastFg{ fill:none; stroke: rgba(91,74,163,.60); stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 0 100; }
@@ -667,7 +667,7 @@
     .seg button{
       border: 0;
       background: transparent;
-      padding: 10px 16px;
+      padding: 10px 0px;
       font-weight: 500;
       font-size: 14px;
       cursor:pointer;
@@ -1375,7 +1375,7 @@
                 <path class="ringBg" d="M18 2.0845
                   a 15.9155 15.9155 0 0 1 0 31.831
                   a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-                <path class="ringFg" id="progressRingResults" stroke-dasharray="0, 100" d="M18 2.0845
+                <path class="ringFg" id="progressRingResults" stroke-dasharray="0 100" d="M18 2.0845
                   a 15.9155 15.9155 0 0 1 0 31.831
                   a 15.9155 15.9155 0 0 1 0 -31.831"></path>
               </svg>
