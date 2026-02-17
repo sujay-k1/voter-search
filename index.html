@@ -5,6 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Jharkhand Electoral Roll - 2003</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" />
   <style>
     :root{
       --bg: #ffffff;
@@ -854,11 +855,9 @@
       border-top: 5px solid rgba(0,0,0,.55);
     }
     .pillBtn .funnel{
-      width: 12px; height: 12px;
-      border: 2px solid rgba(0,0,0,.45);
-      border-top: 0;
-      transform: rotate(180deg);
-      border-radius: 2px;
+      font-size: 18px;
+      line-height: 1;
+      color: rgba(0,0,0,.60);
     }
 
     .resultsMetaRow{
@@ -1538,7 +1537,7 @@
 
           <div style="position:relative;">
             <button class="pillBtn" id="moreFiltersBtn" type="button">
-              <span class="funnel" aria-hidden="true"></span>
+              <span class="material-icons-outlined funnel" aria-hidden="true">filter_alt</span>
               <span data-i18n="more_filters">More filters</span>
             </button>
             <div class="popover" style="min-width: 240px;" id="filtersPopover" aria-hidden="true"></div>
