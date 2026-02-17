@@ -1232,6 +1232,7 @@ const currentPageCount = $("currentPageCount");
 const pageInfo = $("pageInfo");
 
 const clearBtn = $("clearBtn");
+const clearBtnTop = $("clearBtnTop");
 
 // Results table scroll container (for mobile-only compact header behavior)
 const tableRegion = document.querySelector("#resultsSection .tableRegion");
@@ -1262,6 +1263,8 @@ const landingInfoBanner = $("landingInfoBanner");
 const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
 const landingKnowMoreBtnMobile = $("landingKnowMoreBtnMobile");
+const landingInfoBannerCloseBtn = $("landingInfoBannerCloseBtn");
+const landingInfoBannerCloseBtnMobile = $("landingInfoBannerCloseBtnMobile");
 const landingFaqBtn = $("landingFaqBtn");
 const resultsInfoToast = $("resultsInfoToast");
 const resultsToastRingFg = $("resultsToastRingFg");
@@ -1374,6 +1377,15 @@ function hasSeenLandingBanner() {
 function syncLandingFaqVisibility(seen = hasSeenLandingBanner()) {
   if (!landingFaqBtn) return;
   landingFaqBtn.style.display = seen ? "inline-flex" : "none";
+}
+
+function markLandingBannerSeenAndHide() {
+  try {
+    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
+  } catch {}
+  if (landingInfoBanner) landingInfoBanner.style.display = "none";
+  if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
+  syncLandingFaqVisibility(true);
 }
 
 function maybeShowLandingBanner() {
@@ -1597,6 +1609,7 @@ function clearMobileCompactResultsBodyHeight() {
 function syncStickyColScrollShadow() {
   if (!tableRegion) return;
   tableRegion.classList.toggle("scrolled-x", tableRegion.scrollLeft > 1);
+  tableRegion.classList.toggle("scrolled-y", tableRegion.scrollTop > 1);
 }
 
 function initStickyColScrollShadowSync() {
@@ -4233,6 +4246,7 @@ wireIMEEnter(qLanding, runSearch);
 wireIMEEnter(qResults, runSearch);
 
 clearBtn.onclick = () => clearAll();
+clearBtnTop?.addEventListener("click", () => clearAll());
 
 prevBtn.onclick = async () => {
   page--;
@@ -4303,21 +4317,21 @@ pageSizeBtn.onclick = () => {
 };
 
 landingKnowMoreBtnMobile?.addEventListener("click", () => {
-  try {
-    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
-  } catch {}
-  if (landingInfoBanner) landingInfoBanner.style.display = "none";
-  syncLandingFaqVisibility(true);
+  markLandingBannerSeenAndHide();
   showAnnouncementPage();
 });
 
 landingKnowMoreBtn?.addEventListener("click", () => {
-  try {
-    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
-  } catch {}
-  if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
-  syncLandingFaqVisibility(true);
+  markLandingBannerSeenAndHide();
   showAnnouncementPage();
+});
+
+landingInfoBannerCloseBtnMobile?.addEventListener("click", () => {
+  markLandingBannerSeenAndHide();
+});
+
+landingInfoBannerCloseBtn?.addEventListener("click", () => {
+  markLandingBannerSeenAndHide();
 });
 
 landingFaqBtn?.addEventListener("click", () => {

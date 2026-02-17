@@ -543,6 +543,7 @@
       background: #f7efe9;
       padding: 16px;
       flex-direction: column;
+      position: relative;
     }
     .infoBannerTitle{ font-size: 20px; margin: 0; color:#1f1f1f; font-weight: 700; }
     .infoBannerTitle small{ font-size: 16px; font-weight: 800; display:block; margin-top: 8px; }
@@ -556,6 +557,27 @@
       cursor:pointer;
       white-space: nowrap;
       padding: 0;
+    }
+    .infoBannerClose{
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.18);
+      background: rgba(255,255,255,.65);
+      color: rgba(0,0,0,.58);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 0;
+    }
+    .infoBannerClose:hover{
+      background: rgba(255,255,255,.9);
     }
 
     .resultsToast{
@@ -897,11 +919,20 @@
     #scrollTopFab{ display:none;}
     table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 14px; }
     th, td { padding: 10px 10px; border-bottom: 1px solid #eee; white-space: nowrap; vertical-align: top; }
-    th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; }
+    th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; transition: box-shadow 140ms ease; }
     .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; transition: box-shadow 140ms ease; }
     th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; transition: box-shadow 140ms ease; }
-    .tableRegion.scrolled-x .stickyCol{
+    .tableRegion.scrolled-y th{
+      box-shadow: 0 8px 12px -10px rgba(0,0,0,.42);
+    }
+    .tableRegion.scrolled-x td.stickyCol{
       box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05);
+    }
+    .tableRegion.scrolled-x th.stickyCol{
+      box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05);
+    }
+    .tableRegion.scrolled-x.scrolled-y th.stickyCol{
+      box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05), 0 8px 12px -10px rgba(0,0,0,.42);
     }
     .tableRegion.scrolled-x .stickyCol::after{
       content: "";
@@ -927,7 +958,8 @@
       flex-wrap: wrap;
       justify-content:flex-start;
     }
-    .pager .miniBtn{
+    .pager .miniBtn,
+    .clearSearchBtnTop .miniBtn{
       height: 38px;
       border-radius: var(--r-999);
       border: 1px solid rgba(0,0,0,.22);
@@ -940,6 +972,9 @@
     .clearSearchBtn{
       cursor: pointer;
       margin-left: auto;
+    }
+    .clearSearchBtnTop{
+      display: none;
     }
 
     .pager .muted{ color: #4a4a4a; font-weight: 500; }
@@ -1126,6 +1161,7 @@
       gap: 8px;
       flex: 1;
       min-width: 0;
+      position: relative;
     }
     .bannerContentWrap {
       display: flex; 
@@ -1182,7 +1218,14 @@
     @media (max-width: 680px){
       .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
       .seg{justify-content: space-evenly;}
-      .clearSearchBtn{position: absolute; right: -10px; z-index: 60; top: calc(-90.5dvh); width: 120px; display: flex; flex}
+      .pager .clearSearchBtn{ display: none; }
+      .clearSearchBtnTop{
+        display: flex;
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 8px);
+        z-index: 60;
+      }
       .resultsBody{z-index: 40; height: calc(100dvh - 333px); padding: 12px 12px 0px; margin: 0px 0px 0;}
       .pager{z-index: 50; font-size: x-small; flex-wrap: nowrap;}
       .filtersLeft{ justify-content: space-between; width: -webkit-fill-available;}
@@ -1358,6 +1401,14 @@
       </div>
       <div class="infoBannerDesktop" id="landingInfoBannerDesktop">
       <div class="infoBannerHead">
+        <button
+          class="infoBannerClose"
+          id="landingInfoBannerCloseBtn"
+          type="button"
+          aria-label="Close banner"
+          title="Close banner"
+          data-i18n-aria-label="close_banner"
+          data-i18n-title="close_banner">&times;</button>
         <div class="bannerContentWrap">
           <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
           <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
@@ -1378,6 +1429,14 @@
 
     <div class="infoBanner" id="landingInfoBanner">
       <div class="infoBannerHead">
+        <button
+          class="infoBannerClose"
+          id="landingInfoBannerCloseBtnMobile"
+          type="button"
+          aria-label="Close banner"
+          title="Close banner"
+          data-i18n-aria-label="close_banner"
+          data-i18n-title="close_banner">&times;</button>
         <div class="bannerContentWrap">
           <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
           <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
@@ -1527,6 +1586,9 @@
             </div>
 
             <button id="searchBtnResults" class="btn btnPrimary" type="button" disabled data-i18n="btn_search">Search</button>
+            <div class="clearSearchBtnTop">
+              <button class="miniBtn" id="clearBtnTop" type="button" data-i18n="clear">Clear</button>
+            </div>
         </div>
         <div class="scopeWrap">
           <div data-i18n="search_in">Search in:</div>
