@@ -220,7 +220,8 @@
       color: #1a1a1a;
       min-width: 0;
     }
-    .qInput::placeholder{ color: rgba(0,0,0,.35); }
+    .qInput:enabled::placeholder{ color: rgba(0,0,0,.70); }
+    .qInput:disabled::placeholder{ color: rgba(0,0,0,.35); }
 
     /* leave room for mic button inside the same field area */
     .enhancedInputWrap .qInput{
@@ -244,9 +245,9 @@
       border: 1px solid rgba(0,0,0,.18);
       background: rgba(23,23,23,.94);
       color: #fff;
-      font-size: 12px;
+      font-size: 14px;
       line-height: 1.35;
-      font-weight: 650;
+      font-weight: 500;
       box-shadow: 0 10px 26px rgba(0,0,0,.22);
       pointer-events: none;
     }
@@ -334,9 +335,9 @@
 
     .listeningChip{
       position: absolute;
-      left: 10px;
-      top: 50%;
-      transform: translateY(-50%);
+      right: 0;
+      top: calc(100% + 8px);
+      transform: none;
       height: 28px;
       padding: 0 12px;
       border-radius: 999px;
@@ -349,13 +350,12 @@
       align-items:center;
       pointer-events:none;
       white-space: nowrap;
+      z-index: 66;
     }
     .enhancedInputWrap.isListening .listeningChip{ display:flex; }
 
-    /* Make chip not overlap typed text too much; JS may toggle this only when listening */
-    .enhancedInputWrap.isListening .qInput{
-      display: none;
-    }
+    /* Keep input visible so real-time speech preview remains visible while listening */
+    .enhancedInputWrap.isListening .qInput{ display: block; }
 
     .inlineHint{
       margin-top: 10px;
@@ -543,6 +543,7 @@
       background: #f7efe9;
       padding: 16px;
       flex-direction: column;
+      position: relative;
     }
     .infoBannerTitle{ font-size: 20px; margin: 0; color:#1f1f1f; font-weight: 700; }
     .infoBannerTitle small{ font-size: 16px; font-weight: 800; display:block; margin-top: 8px; }
@@ -556,6 +557,27 @@
       cursor:pointer;
       white-space: nowrap;
       padding: 0;
+    }
+    .infoBannerClose{
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,.18);
+      background: rgba(255,255,255,.65);
+      color: rgba(0,0,0,.58);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 0;
+    }
+    .infoBannerClose:hover{
+      background: rgba(255,255,255,.9);
     }
 
     .resultsToast{
@@ -638,10 +660,10 @@
       max-width: 650px;
     }
     .announcementBlock{
-      margin-top: 18px;
+      margin-top: 26px;
     }
     .announcementHeading{
-      margin: 0 0 8px;
+      margin: 0 0 16px;
       color:#1d1f24;
       font-size: clamp(26px, 2.7vw, 34px);
       line-height: 1.14;
@@ -892,14 +914,50 @@
       background: #fff;
       box-shadow: var(--shadow);
     }
+    .tableRegion::after{
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 52px;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 5;
+      box-shadow: inset 0 -14px 14px -14px rgba(0,0,0,.62);
+      transition: opacity 140ms ease;
+    }
+    .tableRegion.scrolled-y::after{ opacity: 1; }
 
     /* scroll-to-top FAB (mobile only via media query) */
     #scrollTopFab{ display:none;}
     table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 14px; }
     th, td { padding: 10px 10px; border-bottom: 1px solid #eee; white-space: nowrap; vertical-align: top; }
-    th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; }
-    .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; }
-    th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; }
+    th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; transition: box-shadow 140ms ease; }
+    .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; transition: box-shadow 140ms ease; }
+    th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; transition: box-shadow 140ms ease; }
+    .tableRegion.scrolled-y th{
+      box-shadow: 0 10px 14px -12px rgba(0,0,0,.62);
+    }
+    .tableRegion.scrolled-x td.stickyCol{
+      box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05);
+    }
+    .tableRegion.scrolled-x th.stickyCol{
+      box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05);
+    }
+    .tableRegion.scrolled-x.scrolled-y th.stickyCol{
+      box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05), 0 8px 12px -10px rgba(0,0,0,.42);
+    }
+    .tableRegion.scrolled-x .stickyCol::after{
+      content: "";
+      position: absolute;
+      top: 0;
+      right: -10px;
+      width: 10px;
+      height: 100%;
+      pointer-events: none;
+      background: linear-gradient(to right, rgba(0,0,0,.10), rgba(0,0,0,0));
+    }
 
     .pager{
       position: sticky;
@@ -914,7 +972,8 @@
       flex-wrap: wrap;
       justify-content:flex-start;
     }
-    .pager .miniBtn{
+    .pager .miniBtn,
+    .resultsActionStack .miniBtn{
       height: 38px;
       border-radius: var(--r-999);
       border: 1px solid rgba(0,0,0,.22);
@@ -928,6 +987,11 @@
       cursor: pointer;
       margin-left: auto;
     }
+    .resultsActionStack{
+      display: flex;
+      align-items: flex-end;
+    }
+    .resultsActionStack .clearSearchBtnTop{ display: none; }
 
     .pager .muted{ color: #4a4a4a; font-weight: 500; }
 
@@ -1113,6 +1177,7 @@
       gap: 8px;
       flex: 1;
       min-width: 0;
+      position: relative;
     }
     .bannerContentWrap {
       display: flex; 
@@ -1169,7 +1234,17 @@
     @media (max-width: 680px){
       .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
       .seg{justify-content: space-evenly;}
-      .clearSearchBtn{position: absolute; right: -10px; z-index: 60; top: calc(-90.5dvh); width: 120px; display: flex; flex}
+      .pager .clearSearchBtn{ display: none; }
+      .resultsActionStack{
+        display: flex;
+        flex-direction: column;
+        justify-content: space-evenly;
+        align-items: stretch;
+        height: 108px;
+        min-width: 120px;
+      }
+      .resultsActionStack .clearSearchBtnTop{ display: block; }
+      .resultsActionStack #searchBtnResults{ min-width: 120px; }
       .resultsBody{z-index: 40; height: calc(100dvh - 333px); padding: 12px 12px 0px; margin: 0px 0px 0;}
       .pager{z-index: 50; font-size: x-small; flex-wrap: nowrap;}
       .filtersLeft{ justify-content: space-between; width: -webkit-fill-available;}
@@ -1192,8 +1267,10 @@
         right: 38px;
         bottom: 48px;
       }
+      .hero {margin: auto; padding: 24px 18px 24px 18px;}
+      .hero_title {line-height: 50px;}
 
-      .infoBanner{ padding: 16px; margin: 0px 12px; border-radius: 16px; display: block;}
+      .infoBanner{ padding: 0px; margin: 0px 12px; border-radius: 16px; display: block;}
       .infoBannerHead{flex-direction: column; align-items: flex-start;}
       .infoBannerTitle{ font-size: 16px; }
       .infoBannerText{ font-size: 14px; }
@@ -1208,8 +1285,8 @@
       .announcementContent{ max-width: none; }
       .announcementTitle{ font-size: 22px; line-height: 1.23; margin-bottom: 12px; }
       .announcementLead{ font-size: 16px; line-height: 1.5; margin-bottom: 20px; max-width: none; }
-      .announcementBlock{ margin-top: 15px; }
-      .announcementHeading{ font-size: 18px; line-height: 1.25; margin-bottom: 8px; }
+      .announcementBlock{ margin-top: 32px; }
+      .announcementHeading{ font-size: 18px; line-height: 1.25; margin-bottom: 16px; }
       .announcementText{ font-size: 16px; line-height: 1.5; margin-bottom: 7px; }
       .announcementLink{ font-size: 16px; line-height: 1.42; margin-bottom: 9px; }
       .announcementTips{ padding-left: 20px; }
@@ -1343,6 +1420,14 @@
       </div>
       <div class="infoBannerDesktop" id="landingInfoBannerDesktop">
       <div class="infoBannerHead">
+        <button
+          class="infoBannerClose"
+          id="landingInfoBannerCloseBtn"
+          type="button"
+          aria-label="Close banner"
+          title="Close banner"
+          data-i18n-aria-label="close_banner"
+          data-i18n-title="close_banner">&times;</button>
         <div class="bannerContentWrap">
           <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
           <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
@@ -1360,6 +1445,24 @@
       title="Open portal information"
       data-i18n-aria-label="faq_open_announcement"
       data-i18n-title="faq_open_announcement">?</button>
+
+    <div class="infoBanner" id="landingInfoBanner">
+      <div class="infoBannerHead">
+        <button
+          class="infoBannerClose"
+          id="landingInfoBannerCloseBtnMobile"
+          type="button"
+          aria-label="Close banner"
+          title="Close banner"
+          data-i18n-aria-label="close_banner"
+          data-i18n-title="close_banner">&times;</button>
+        <div class="bannerContentWrap">
+          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
+          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+        </div>
+        <button class="infoBannerLink" id="landingKnowMoreBtnMobile" type="button" data-i18n="know_more">Know more</button>
+      </div>
+    </div>
 
     <div class="hero">
       <h1 data-i18n="hero_title">Jharkhand Electoral Roll - 2003</h1>
@@ -1397,7 +1500,13 @@
                 autocomplete="off" spellcheck="false" />
 
               <div class="fieldTooltip" id="qDisabledHintLanding" aria-hidden="true">
-                <span data-i18n="hint_select_district_then_type_name">Please select a district first and then type your name.</span>
+  
+                <!-- SVG Arrow -->
+                <svg class="tooltip-arrow" width="16" height="8" viewBox="0 0 16 8" style="position: absolute; top: -8px; left: 14px;">
+                  <path d="M0 8 L8 0 L16 8 Z" fill="#333"></path>
+                </svg>
+
+                <span data-i18n="hint_select_district_then_type_name">कृपया पहले ज़िला चुनें, फिर अपना नाम लिखें।</span>
               </div>
 
               <button id="micBtnLanding" class="micBtn" type="button" aria-label="Voice input">
@@ -1427,18 +1536,6 @@
             Tip: You can type your name or your relative’s name (Father, husband, mother)
           </div>
         </div>
-      </div>
-    </div>
-
-   
-
-    <div class="infoBanner" id="landingInfoBanner">
-      <div class="infoBannerHead">
-        <div class="bannerContentWrap">
-          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
-          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
-        </div>
-        <button class="infoBannerLink" id="landingKnowMoreBtnMobile" type="button" data-i18n="know_more">Know more</button>
       </div>
     </div>
 
@@ -1507,7 +1604,10 @@
             </div>
             </div>
 
-            <button id="searchBtnResults" class="btn btnPrimary" type="button" disabled data-i18n="btn_search">Search</button>
+            <div class="resultsActionStack">
+              <button class="miniBtn clearSearchBtnTop" id="clearBtnTop" type="button" data-i18n="clear">Clear</button>
+              <button id="searchBtnResults" class="btn btnPrimary" type="button" disabled data-i18n="btn_search">Search</button>
+            </div>
         </div>
         <div class="scopeWrap">
           <div data-i18n="search_in">Search in:</div>

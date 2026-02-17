@@ -642,11 +642,22 @@ function attachNameEnhancements({
   // SpeechRecognition per field
   let recognizer = null;
   let isListening = false;
-  let lastInterim = "";
+  let spokenFinal = "";
+  let pendingFinalCommit = "";
+  let lastPreview = "";
+  let lastCommittedFinal = "";
   let suppressSuggestDuringSpeech = false;
 
   function now() {
     return Date.now();
+  }
+
+  function joinSpeechParts(a, b) {
+    const aa = String(a || "").trim();
+    const bb = String(b || "").trim();
+    if (!aa) return bb;
+    if (!bb) return aa;
+    return `${aa} ${bb}`.replace(/\s+/g, " ").trim();
   }
 
   function setListeningUI(on) {
@@ -902,7 +913,10 @@ function attachNameEnhancements({
   function startListening() {
     if (!recognizer) return;
     suppressSuggestDuringSpeech = true;
-    lastInterim = "";
+    spokenFinal = "";
+    pendingFinalCommit = "";
+    lastPreview = "";
+    lastCommittedFinal = "";
     setListeningUI(true);
     closeAll();
     try {
@@ -978,26 +992,34 @@ function attachNameEnhancements({
       recognizer.onresult = (ev) => {
         try {
           let interim = "";
-          let finalText = "";
+          let finalChunk = "";
 
           for (let i = ev.resultIndex; i < ev.results.length; i++) {
             const res = ev.results[i];
             const txt = res?.[0]?.transcript ?? "";
-            if (res.isFinal) finalText += txt;
+            if (res.isFinal) finalChunk = joinSpeechParts(finalChunk, txt);
             else interim += txt;
           }
 
           interim = String(interim || "").trim();
-          finalText = String(finalText || "").trim();
+          finalChunk = String(finalChunk || "").trim();
 
-          if (interim && interim !== lastInterim) {
-            lastInterim = interim;
-            ignoreUntil = now() + 60;
-            setInputValueNoRerender(inputEl, interim);
+          if (finalChunk) {
+            spokenFinal = joinSpeechParts(spokenFinal, finalChunk);
+            pendingFinalCommit = spokenFinal;
           }
 
-          if (finalText) {
-            handleSpeechFinal(finalText);
+          const livePreview = joinSpeechParts(spokenFinal, interim);
+          if (livePreview && livePreview !== lastPreview) {
+            lastPreview = livePreview;
+            ignoreUntil = now() + 60;
+            setInputValueNoRerender(inputEl, livePreview);
+          }
+
+          if (pendingFinalCommit && !interim && pendingFinalCommit !== lastCommittedFinal) {
+            lastCommittedFinal = pendingFinalCommit;
+            handleSpeechFinal(pendingFinalCommit);
+            pendingFinalCommit = "";
           }
         } catch (e) {
           console.warn(e);
@@ -1010,6 +1032,12 @@ function attachNameEnhancements({
       };
 
       recognizer.onend = () => {
+        const finalToCommit = String(pendingFinalCommit || spokenFinal || "").trim();
+        if (finalToCommit && finalToCommit !== lastCommittedFinal) {
+          lastCommittedFinal = finalToCommit;
+          handleSpeechFinal(finalToCommit);
+        }
+        pendingFinalCommit = "";
         setListeningUI(false);
         suppressSuggestDuringSpeech = false;
       };
@@ -1204,6 +1232,7 @@ const currentPageCount = $("currentPageCount");
 const pageInfo = $("pageInfo");
 
 const clearBtn = $("clearBtn");
+const clearBtnTop = $("clearBtnTop");
 
 // Results table scroll container (for mobile-only compact header behavior)
 const tableRegion = document.querySelector("#resultsSection .tableRegion");
@@ -1234,6 +1263,8 @@ const landingInfoBanner = $("landingInfoBanner");
 const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
 const landingKnowMoreBtnMobile = $("landingKnowMoreBtnMobile");
+const landingInfoBannerCloseBtn = $("landingInfoBannerCloseBtn");
+const landingInfoBannerCloseBtnMobile = $("landingInfoBannerCloseBtnMobile");
 const landingFaqBtn = $("landingFaqBtn");
 const resultsInfoToast = $("resultsInfoToast");
 const resultsToastRingFg = $("resultsToastRingFg");
@@ -1308,6 +1339,7 @@ function setMeta(msg) {
 // ===== VIEW SWITCHING =====
 
 function showLanding() {
+  clearLandingScrollRestoreHandlers();
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
   if (announcementSection) announcementSection.style.display = "none";
@@ -1316,14 +1348,19 @@ function showLanding() {
 }
 
 function showResults() {
+  clearLandingScrollRestoreHandlers();
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
   if (announcementSection) announcementSection.style.display = "none";
   // Sync compact UI state (in case user navigates back to results).
-  if (tableRegion) setMobileTableCompact(tableRegion.scrollTop > 8);
+  if (tableRegion) {
+    setMobileTableCompact(tableRegion.scrollTop > 8);
+    syncStickyColScrollShadow();
+  }
 }
 
 function showAnnouncementPage() {
+  clearLandingScrollRestoreHandlers();
   landingSection.style.display = "none";
   resultsSection.style.display = "none";
   if (announcementSection) announcementSection.style.display = "block";
@@ -1340,6 +1377,15 @@ function hasSeenLandingBanner() {
 function syncLandingFaqVisibility(seen = hasSeenLandingBanner()) {
   if (!landingFaqBtn) return;
   landingFaqBtn.style.display = seen ? "inline-flex" : "none";
+}
+
+function markLandingBannerSeenAndHide() {
+  try {
+    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
+  } catch {}
+  if (landingInfoBanner) landingInfoBanner.style.display = "none";
+  if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
+  syncLandingFaqVisibility(true);
 }
 
 function maybeShowLandingBanner() {
@@ -1399,7 +1445,7 @@ function maybeShowResultsToastOnce() {
   // Force layout so browser applies reset immediately
   path.getBoundingClientRect();
 
-  const ms = 3000;
+  const ms = 6000;
   const t0 = performance.now();
 
   const tick = (now) => {
@@ -1430,6 +1476,113 @@ function isResultsVisible() {
   return window.getComputedStyle(resultsSection).display !== "none";
 }
 
+function isLandingVisible() {
+  return window.getComputedStyle(landingSection).display !== "none";
+}
+
+const LANDING_INPUT_TOP_GAP_PX = 96;
+const KEYBOARD_OPEN_DELTA_PX = 110;
+const KEYBOARD_CLOSE_DELTA_PX = 40;
+const AUTO_SCROLL_RESTORE_TOLERANCE_PX = 120;
+
+let landingScrollRestoreCleanup = null;
+
+function clearLandingScrollRestoreHandlers() {
+  const cleanup = landingScrollRestoreCleanup;
+  landingScrollRestoreCleanup = null;
+  if (typeof cleanup === "function") {
+    try {
+      cleanup();
+    } catch {}
+  }
+}
+
+function setupLandingKeyboardCloseRestore({ inputEl, prevScrollY, targetScrollY, baselineViewportH }) {
+  clearLandingScrollRestoreHandlers();
+  if (!inputEl) return;
+
+  const vv = window.visualViewport || null;
+  let keyboardWasOpen = false;
+  let done = false;
+
+  const cleanup = () => {
+    vv?.removeEventListener?.("resize", onViewportResize);
+    inputEl.removeEventListener("blur", onInputBlur);
+    window.removeEventListener("pagehide", onPageHide);
+  };
+
+  const maybeRestore = () => {
+    if (done) return;
+    if (!isLandingVisible()) {
+      done = true;
+      clearLandingScrollRestoreHandlers();
+      return;
+    }
+
+    const currentViewportH = vv?.height || window.innerHeight;
+    if (currentViewportH <= baselineViewportH - KEYBOARD_OPEN_DELTA_PX) {
+      keyboardWasOpen = true;
+    }
+
+    const focusGone = document.activeElement !== inputEl;
+    if (focusGone && !keyboardWasOpen) {
+      done = true;
+      clearLandingScrollRestoreHandlers();
+      return;
+    }
+
+    const keyboardClosed = keyboardWasOpen && currentViewportH >= baselineViewportH - KEYBOARD_CLOSE_DELTA_PX;
+    if (!keyboardClosed && !(keyboardWasOpen && focusGone)) return;
+
+    const currentY = window.scrollY || window.pageYOffset || 0;
+    const stillNearAutoPosition = Math.abs(currentY - targetScrollY) <= AUTO_SCROLL_RESTORE_TOLERANCE_PX;
+    if (stillNearAutoPosition) {
+      window.scrollTo({ top: prevScrollY, behavior: "smooth" });
+    }
+
+    done = true;
+    clearLandingScrollRestoreHandlers();
+  };
+
+  const onViewportResize = () => {
+    requestAnimationFrame(maybeRestore);
+  };
+
+  const onInputBlur = () => {
+    setTimeout(maybeRestore, 90);
+  };
+
+  const onPageHide = () => {
+    done = true;
+    clearLandingScrollRestoreHandlers();
+  };
+
+  vv?.addEventListener?.("resize", onViewportResize);
+  inputEl.addEventListener("blur", onInputBlur);
+  window.addEventListener("pagehide", onPageHide);
+
+  landingScrollRestoreCleanup = cleanup;
+}
+
+function scrollLandingInputToTopGap(inputEl, gapPx = LANDING_INPUT_TOP_GAP_PX) {
+  if (!inputEl || !isLandingVisible()) return;
+
+  const prevScrollY = window.scrollY || window.pageYOffset || 0;
+  const rect = inputEl.getBoundingClientRect();
+  const targetScrollY = Math.max(0, Math.round(prevScrollY + rect.top - gapPx));
+  if (Math.abs(targetScrollY - prevScrollY) < 2) return;
+
+  const baselineViewportH = window.visualViewport?.height || window.innerHeight;
+  setupLandingKeyboardCloseRestore({
+    inputEl,
+    prevScrollY,
+    targetScrollY,
+    baselineViewportH,
+  });
+
+  window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+}
+
 
 // ------- Mobile-only: collapse header rows when the results table is scrolled -------
 function isNarrowMobileForTableCompact() {
@@ -1451,6 +1604,31 @@ function applyMobileCompactResultsBodyHeight() {
 function clearMobileCompactResultsBodyHeight() {
   if (!resultsBodyEl) return;
   resultsBodyEl.style.height = "";
+}
+
+function syncStickyColScrollShadow() {
+  if (!tableRegion) return;
+  tableRegion.classList.toggle("scrolled-x", tableRegion.scrollLeft > 1);
+  tableRegion.classList.toggle("scrolled-y", tableRegion.scrollTop > 1);
+}
+
+function initStickyColScrollShadowSync() {
+  if (!tableRegion) return;
+
+  let raf = null;
+  const sync = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = null;
+      syncStickyColScrollShadow();
+    });
+  };
+
+  tableRegion.addEventListener("scroll", sync, { passive: true });
+  window.addEventListener("resize", sync);
+  window.visualViewport?.addEventListener?.("resize", sync);
+
+  syncStickyColScrollShadow();
 }
 
 function setMobileTableCompact(on) {
@@ -1480,6 +1658,7 @@ function initMobileTableScrollCompactUI() {
   let raf = null;
 
   const syncFromScroll = () => {
+    syncStickyColScrollShadow();
     // Only act when results are visible.
     if (!isResultsVisible() || !isNarrowMobileForTableCompact()) {
       resetMobileTableCompactUI();
@@ -2140,6 +2319,10 @@ async function preloadDistrictACs(acs, districtLabel) {
             try {
               el.focus();
             } catch {}
+          }
+
+          if (el === qLanding && isLandingVisible()) {
+            scrollLandingInputToTopGap(el, LANDING_INPUT_TOP_GAP_PX);
           }
         }
       } catch {}
@@ -3064,6 +3247,8 @@ async function renderPage() {
 
   if (total) setStatus(t("status_showing_range", { from: start + 1, to: end, total }));
   else setStatus(t("status_ready_results", { n: 0 }));
+
+  syncStickyColScrollShadow();
 }
 
 function renderTable(rows, infoMap) {
@@ -4061,6 +4246,7 @@ wireIMEEnter(qLanding, runSearch);
 wireIMEEnter(qResults, runSearch);
 
 clearBtn.onclick = () => clearAll();
+clearBtnTop?.addEventListener("click", () => clearAll());
 
 prevBtn.onclick = async () => {
   page--;
@@ -4131,21 +4317,21 @@ pageSizeBtn.onclick = () => {
 };
 
 landingKnowMoreBtnMobile?.addEventListener("click", () => {
-  try {
-    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
-  } catch {}
-  if (landingInfoBanner) landingInfoBanner.style.display = "none";
-  syncLandingFaqVisibility(true);
+  markLandingBannerSeenAndHide();
   showAnnouncementPage();
 });
 
 landingKnowMoreBtn?.addEventListener("click", () => {
-  try {
-    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
-  } catch {}
-  if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
-  syncLandingFaqVisibility(true);
+  markLandingBannerSeenAndHide();
   showAnnouncementPage();
+});
+
+landingInfoBannerCloseBtnMobile?.addEventListener("click", () => {
+  markLandingBannerSeenAndHide();
+});
+
+landingInfoBannerCloseBtn?.addEventListener("click", () => {
+  markLandingBannerSeenAndHide();
 });
 
 landingFaqBtn?.addEventListener("click", () => {
@@ -4195,6 +4381,7 @@ initNameEnhancements();
 
 // Mobile-only: auto-collapse header rows when table is scrolled
 initMobileTableScrollCompactUI();
+initStickyColScrollShadowSync();
 
 // update page size options if user resizes across breakpoint
 let resizeTimer = null;
