@@ -1599,6 +1599,25 @@ function syncStickyColScrollShadow() {
   tableRegion.classList.toggle("scrolled-x", tableRegion.scrollLeft > 1);
 }
 
+function initStickyColScrollShadowSync() {
+  if (!tableRegion) return;
+
+  let raf = null;
+  const sync = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = null;
+      syncStickyColScrollShadow();
+    });
+  };
+
+  tableRegion.addEventListener("scroll", sync, { passive: true });
+  window.addEventListener("resize", sync);
+  window.visualViewport?.addEventListener?.("resize", sync);
+
+  syncStickyColScrollShadow();
+}
+
 function setMobileTableCompact(on) {
   if (!isNarrowMobileForTableCompact() || !isResultsVisible()) {
     resultsSection.classList.remove("mobileCompact");
@@ -4348,6 +4367,7 @@ initNameEnhancements();
 
 // Mobile-only: auto-collapse header rows when table is scrolled
 initMobileTableScrollCompactUI();
+initStickyColScrollShadowSync();
 
 // update page size options if user resizes across breakpoint
 let resizeTimer = null;

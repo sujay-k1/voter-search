@@ -901,7 +901,17 @@
     .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; transition: box-shadow 140ms ease; }
     th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; transition: box-shadow 140ms ease; }
     .tableRegion.scrolled-x .stickyCol{
-      box-shadow: 10px 0 14px -12px rgba(0,0,0,.32);
+      box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05);
+    }
+    .tableRegion.scrolled-x .stickyCol::after{
+      content: "";
+      position: absolute;
+      top: 0;
+      right: -10px;
+      width: 10px;
+      height: 100%;
+      pointer-events: none;
+      background: linear-gradient(to right, rgba(0,0,0,.10), rgba(0,0,0,0));
     }
 
     .pager{
