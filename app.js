@@ -270,6 +270,115 @@ function getDistrictLabelCurrent() {
   return getDistrictLabelForLang(d, getActiveLang());
 }
 
+// Jharkhand AC labels by AC number (fallback when manifest does not provide AC names).
+const FALLBACK_AC_LABELS = {
+  1: { en: "Rajmahal", hi: "राजमहल", hinglish: "Rajmahal" },
+  2: { en: "Borio", hi: "बोरियो", hinglish: "Borio" },
+  3: { en: "Barhait", hi: "बरहेट", hinglish: "Barhait" },
+  4: { en: "Litipara", hi: "लिट्टीपाड़ा", hinglish: "Litipara" },
+  5: { en: "Pakur", hi: "पाकुड़", hinglish: "Pakur" },
+  6: { en: "Maheshpur", hi: "महेशपुर", hinglish: "Maheshpur" },
+  7: { en: "Sikaripara", hi: "शिकारीपाड़ा", hinglish: "Sikaripara" },
+  8: { en: "Nala", hi: "नाला", hinglish: "Nala" },
+  9: { en: "Jamtara", hi: "जामताड़ा", hinglish: "Jamtara" },
+  10: { en: "Dumka", hi: "दुमका", hinglish: "Dumka" },
+  11: { en: "Jama", hi: "जामा", hinglish: "Jama" },
+  12: { en: "Jarmundi", hi: "जरमुंडी", hinglish: "Jarmundi" },
+  13: { en: "Madhupur", hi: "मधुपुर", hinglish: "Madhupur" },
+  14: { en: "Sarath", hi: "सारठ", hinglish: "Sarath" },
+  15: { en: "Deoghar", hi: "देवघर", hinglish: "Deoghar" },
+  16: { en: "Poreyahat", hi: "पोरेयाहाट", hinglish: "Poreyahat" },
+  17: { en: "Godda", hi: "गोड्डा", hinglish: "Godda" },
+  18: { en: "Mahagama", hi: "महगामा", hinglish: "Mahagama" },
+  19: { en: "Koderma", hi: "कोडरमा", hinglish: "Koderma" },
+  20: { en: "Barkatha", hi: "बरकट्ठा", hinglish: "Barkatha" },
+  21: { en: "Barhi", hi: "बरही", hinglish: "Barhi" },
+  22: { en: "Barkagaon", hi: "बड़कागांव", hinglish: "Barkagaon" },
+  23: { en: "Ramgarh", hi: "रामगढ़", hinglish: "Ramgarh" },
+  24: { en: "Mandu", hi: "मांडू", hinglish: "Mandu" },
+  25: { en: "Hazaribagh", hi: "हजारीबाग", hinglish: "Hazaribagh" },
+  26: { en: "Simaria", hi: "सिमरिया", hinglish: "Simaria" },
+  27: { en: "Chatra", hi: "चतरा", hinglish: "Chatra" },
+  28: { en: "Dhanwar", hi: "धनवार", hinglish: "Dhanwar" },
+  29: { en: "Bagodar", hi: "बगोदर", hinglish: "Bagodar" },
+  30: { en: "Jamua", hi: "जमुआ", hinglish: "Jamua" },
+  31: { en: "Gandey", hi: "गांडेय", hinglish: "Gandey" },
+  32: { en: "Giridih", hi: "गिरिडीह", hinglish: "Giridih" },
+  33: { en: "Dumri", hi: "डुमरी", hinglish: "Dumri" },
+  34: { en: "Gomia", hi: "गोमिया", hinglish: "Gomia" },
+  35: { en: "Bermo", hi: "बेरमो", hinglish: "Bermo" },
+  36: { en: "Bokaro", hi: "बोकारो", hinglish: "Bokaro" },
+  37: { en: "Chandankiyari", hi: "चंदनकियारी", hinglish: "Chandankiyari" },
+  38: { en: "Sindri", hi: "सिंदरी", hinglish: "Sindri" },
+  39: { en: "Nirsa", hi: "निरसा", hinglish: "Nirsa" },
+  40: { en: "Dhanbad", hi: "धनबाद", hinglish: "Dhanbad" },
+  41: { en: "Jharia", hi: "झरिया", hinglish: "Jharia" },
+  42: { en: "Tundi", hi: "टुंडी", hinglish: "Tundi" },
+  43: { en: "Baghmara", hi: "बाघमारा", hinglish: "Baghmara" },
+  44: { en: "Baharagora", hi: "बहरागोड़ा", hinglish: "Baharagora" },
+  45: { en: "Ghatsila", hi: "घाटशिला", hinglish: "Ghatsila" },
+  46: { en: "Potka", hi: "पोटका", hinglish: "Potka" },
+  47: { en: "Jugsalai", hi: "जुगसलाई", hinglish: "Jugsalai" },
+  48: { en: "Jamshedpur East", hi: "जमशेदपुर पूर्व", hinglish: "Jamshedpur East" },
+  49: { en: "Jamshedpur West", hi: "जमशेदपुर पश्चिम", hinglish: "Jamshedpur West" },
+  50: { en: "Ichagarh", hi: "ईचागढ़", hinglish: "Ichagarh" },
+  51: { en: "Seraikella", hi: "सरायकेला", hinglish: "Seraikella" },
+  52: { en: "Chaibasa", hi: "चाईबासा", hinglish: "Chaibasa" },
+  53: { en: "Majhgaon", hi: "मझगांव", hinglish: "Majhgaon" },
+  54: { en: "Jagannathpur", hi: "जगन्नाथपुर", hinglish: "Jagannathpur" },
+  55: { en: "Manoharpur", hi: "मनोहरपुर", hinglish: "Manoharpur" },
+  56: { en: "Chakradharpur", hi: "चक्रधरपुर", hinglish: "Chakradharpur" },
+  57: { en: "Kharsawan", hi: "खरसावां", hinglish: "Kharsawan" },
+  58: { en: "Tamar", hi: "तमाड़", hinglish: "Tamar" },
+  59: { en: "Torpa", hi: "तोरपा", hinglish: "Torpa" },
+  60: { en: "Khunti", hi: "खूंटी", hinglish: "Khunti" },
+  61: { en: "Silli", hi: "सिल्ली", hinglish: "Silli" },
+  62: { en: "Khijri", hi: "खिजरी", hinglish: "Khijri" },
+  63: { en: "Ranchi", hi: "रांची", hinglish: "Ranchi" },
+  64: { en: "Hatia", hi: "हटिया", hinglish: "Hatia" },
+  65: { en: "Kanke", hi: "कांके", hinglish: "Kanke" },
+  66: { en: "Mandar", hi: "मांडर", hinglish: "Mandar" },
+  67: { en: "Sisai", hi: "सिसई", hinglish: "Sisai" },
+  68: { en: "Gumla", hi: "गुमला", hinglish: "Gumla" },
+  69: { en: "Bishunpur", hi: "बिशुनपुर", hinglish: "Bishunpur" },
+  70: { en: "Simdega", hi: "सिमडेगा", hinglish: "Simdega" },
+  71: { en: "Kolebira", hi: "कोलेबिरा", hinglish: "Kolebira" },
+  72: { en: "Lohardaga", hi: "लोहरदगा", hinglish: "Lohardaga" },
+  73: { en: "Manika", hi: "मनिका", hinglish: "Manika" },
+  74: { en: "Latehar", hi: "लातेहार", hinglish: "Latehar" },
+  75: { en: "Panki", hi: "पांकी", hinglish: "Panki" },
+  76: { en: "Daltonganj", hi: "डालटनगंज", hinglish: "Daltonganj" },
+  77: { en: "Bishrampur", hi: "विश्रामपुर", hinglish: "Bishrampur" },
+  78: { en: "Chhatarpur", hi: "छतरपुर", hinglish: "Chhatarpur" },
+  79: { en: "Hussainabad", hi: "हुसैनाबाद", hinglish: "Hussainabad" },
+  80: { en: "Garhwa", hi: "गढ़वा", hinglish: "Garhwa" },
+  81: { en: "Bhawanathpur", hi: "भवनाथपुर", hinglish: "Bhawanathpur" },
+};
+
+function getAcLabelForLang(acNo, lang) {
+  const n = Number(acNo);
+  if (!Number.isFinite(n)) return "";
+  if (!lang) lang = getActiveLang();
+
+  const d = getDistrictById(currentDistrictId);
+  const acLabels = d && typeof d.acLabels === "object" && d.acLabels ? d.acLabels : null;
+  const raw = (acLabels && (acLabels[n] ?? acLabels[String(n)])) || FALLBACK_AC_LABELS[n];
+  if (!raw) return "";
+
+  if (typeof raw === "string") return raw.trim();
+  const base = String(raw.en ?? raw.label ?? raw.name ?? "").trim();
+  if (lang === LANG.EN) return String(raw.en ?? base).trim() || base;
+  if (lang === LANG.HINGLISH) return String(raw.hinglish ?? raw.en ?? base).trim() || base;
+  return String(raw.hi ?? raw.hindi ?? base).trim() || base;
+}
+
+function getAcOptionLabel(acNo) {
+  const n = Number(acNo);
+  if (!Number.isFinite(n)) return "";
+  const name = getAcLabelForLang(n, getActiveLang());
+  return name ? `${n} - ${name}` : `AC ${n}`;
+}
+
 function getDistrictSearchStrings(d) {
   const out = [];
   const seen = new Set();
@@ -940,6 +1049,18 @@ function applyTranslationsToDOM() {
     el.setAttribute("placeholder", t(k));
   });
 
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const k = el.getAttribute("data-i18n-title");
+    if (!k) return;
+    el.setAttribute("title", t(k));
+  });
+
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((el) => {
+    const k = el.getAttribute("data-i18n-aria-label");
+    if (!k) return;
+    el.setAttribute("aria-label", t(k));
+  });
+
   updateDistrictUI();
   updateSelectedAcText();
   setSortMode(sortMode);
@@ -952,6 +1073,9 @@ function applyTranslationsToDOM() {
   } catch {}
   try {
     if (districtPopoverLanding && districtPopoverLanding.style.display !== "none") updateDistrictPopoverList(districtPopoverLanding);
+  } catch {}
+  try {
+    if (acPopover && acPopover.style.display !== "none") renderAcPopover();
   } catch {}
 
   if (pageSizeBtn) {
@@ -1110,6 +1234,7 @@ const landingInfoBanner = $("landingInfoBanner");
 const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
 const landingKnowMoreBtnMobile = $("landingKnowMoreBtnMobile");
+const landingFaqBtn = $("landingFaqBtn");
 const resultsInfoToast = $("resultsInfoToast");
 const resultsToastRingFg = $("resultsToastRingFg");
 const announcementSection = $("announcementSection");
@@ -1204,22 +1329,37 @@ function showAnnouncementPage() {
   if (announcementSection) announcementSection.style.display = "block";
 }
 
-function maybeShowLandingBanner() {
-  if (!landingInfoBanner) return;
+function hasSeenLandingBanner() {
   let seen = false;
   try {
     seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
   } catch {}
+  return seen;
+}
+
+function syncLandingFaqVisibility(seen = hasSeenLandingBanner()) {
+  if (!landingFaqBtn) return;
+  landingFaqBtn.style.display = seen ? "inline-flex" : "none";
+}
+
+function maybeShowLandingBanner() {
+  const seen = hasSeenLandingBanner();
+  if (!landingInfoBanner) {
+    syncLandingFaqVisibility(seen);
+    return;
+  }
   landingInfoBanner.style.display = seen ? "none" : "";
+  syncLandingFaqVisibility(seen);
 }
 
 function maybeShowLandingBannerDesktop() {
-  if (!landingInfoBannerDesktop) return;
-  let seen = false;
-  try {
-    seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
-  } catch {}
+  const seen = hasSeenLandingBanner();
+  if (!landingInfoBannerDesktop) {
+    syncLandingFaqVisibility(seen);
+    return;
+  }
   landingInfoBannerDesktop.style.display = seen ? "none" : "";
+  syncLandingFaqVisibility(seen);
 }
 
 function hideResultsToast() {
@@ -1796,15 +1936,62 @@ const FALLBACK_DISTRICT_MAP = [
 ];
 
 function normalizeDistrictManifest(raw) {
+  const buildFallbackAcLabels = (acs) => {
+    const out = {};
+    for (const ac of acs || []) {
+      const n = Number(ac);
+      if (!Number.isFinite(n)) continue;
+      const rec = FALLBACK_AC_LABELS[n];
+      if (!rec) continue;
+      out[n] = {
+        en: String(rec.en ?? "").trim(),
+        hi: String(rec.hi ?? rec.en ?? "").trim(),
+        hinglish: String(rec.hinglish ?? rec.en ?? "").trim(),
+      };
+    }
+    return out;
+  };
+
+  const normalizeAcLabels = (rawMap, acs) => {
+    const out = buildFallbackAcLabels(acs);
+    if (!rawMap || typeof rawMap !== "object") return out;
+
+    for (const [k, v] of Object.entries(rawMap)) {
+      const n = Number(k);
+      if (!Number.isFinite(n)) continue;
+
+      if (typeof v === "string") {
+        const s = String(v || "").trim();
+        if (!s) continue;
+        out[n] = { en: s, hi: s, hinglish: s };
+        continue;
+      }
+
+      if (v && typeof v === "object") {
+        const en = String(v.en ?? v.label ?? v.name ?? "").trim();
+        if (!en) continue;
+        out[n] = {
+          en,
+          hi: String(v.hi ?? v.hindi ?? en).trim() || en,
+          hinglish: String(v.hinglish ?? en).trim() || en,
+        };
+      }
+    }
+
+    return out;
+  };
+
   const fallbackWithLabels = () => {
     return {
       districts: (FALLBACK_DISTRICT_MAP || []).map((d) => {
         const base = String(d.label ?? d.id ?? "").trim() || "District";
+        const acs = Array.isArray(d.acs) ? d.acs.slice().map(Number).filter(Number.isFinite) : [];
         return {
           id: String(d.id ?? base).trim() || base,
           label: base,
           labels: { en: base, hi: base, hinglish: base },
-          acs: Array.isArray(d.acs) ? d.acs.slice().map(Number).filter(Number.isFinite) : [],
+          acs,
+          acLabels: normalizeAcLabels(null, acs),
         };
       }),
     };
@@ -1823,8 +2010,9 @@ function normalizeDistrictManifest(raw) {
     const hinglish = String(labelsObj.hinglish ?? d?.label_hinglish ?? "").trim() || en || label || id;
 
     const acs = Array.isArray(d?.acs) ? d.acs.map(Number).filter(Number.isFinite) : [];
+    const acLabels = normalizeAcLabels(d?.ac_labels ?? d?.acLabels ?? null, acs);
 
-    return { id, label, labels: { en, hi, hinglish }, acs };
+    return { id, label, labels: { en, hi, hinglish }, acs, acLabels };
   };
 
   if (Array.isArray(raw.districts)) {
@@ -1848,6 +2036,7 @@ function normalizeDistrictManifest(raw) {
         label,
         labels: { en: label, hi: label, hinglish: label },
         acs,
+        acLabels: normalizeAcLabels(null, acs),
       });
     }
 
@@ -3626,7 +3815,7 @@ function renderAcPopover() {
     const effectiveSelected = isAllACsSelected() ? false : checked;
 
     const row = popRow({
-      left: `AC ${ac}`,
+      left: getAcOptionLabel(ac),
       right: "",
       chevron: false,
       selected: effectiveSelected,
@@ -3946,6 +4135,7 @@ landingKnowMoreBtnMobile?.addEventListener("click", () => {
     localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
   } catch {}
   if (landingInfoBanner) landingInfoBanner.style.display = "none";
+  syncLandingFaqVisibility(true);
   showAnnouncementPage();
 });
 
@@ -3954,6 +4144,14 @@ landingKnowMoreBtn?.addEventListener("click", () => {
     localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
   } catch {}
   if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
+  syncLandingFaqVisibility(true);
+  showAnnouncementPage();
+});
+
+landingFaqBtn?.addEventListener("click", () => {
+  try {
+    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
+  } catch {}
   showAnnouncementPage();
 });
 

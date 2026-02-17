@@ -5,6 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Jharkhand Electoral Roll - 2003</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" />
   <style>
     :root{
       --bg: #ffffff;
@@ -854,11 +855,9 @@
       border-top: 5px solid rgba(0,0,0,.55);
     }
     .pillBtn .funnel{
-      width: 12px; height: 12px;
-      border: 2px solid rgba(0,0,0,.45);
-      border-top: 0;
-      transform: rotate(180deg);
-      border-radius: 2px;
+      font-size: 18px;
+      line-height: 1;
+      color: rgba(0,0,0,.60);
     }
 
     .resultsMetaRow{
@@ -1141,6 +1140,32 @@
       display: none;
     }
 
+    .landingFaqBtn{
+      position: fixed;
+      top: 21px;
+      right: 24px;
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      border: 2px solid rgba(91,74,163,.55);
+      background: #fff;
+      color: var(--accent);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 800;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0,0,0,.10);
+      z-index: 35;
+      user-select: none;
+    }
+    .landingFaqBtn:focus-visible{
+      outline: 2px solid rgba(91,74,163,.40);
+      outline-offset: 2px;
+    }
+
     @media (max-width: 680px){
       .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
       .seg{justify-content: space-evenly;}
@@ -1162,6 +1187,11 @@
       #feedbackLink {display: none;}
       #codeLink {display: none;}
       .infoBannerDesktop{display: none;}
+      .landingFaqBtn{
+        top: auto;
+        right: 38px;
+        bottom: 48px;
+      }
 
       .infoBanner{ padding: 16px; margin: 0px 12px; border-radius: 16px; display: block;}
       .infoBannerHead{flex-direction: column; align-items: flex-start;}
@@ -1322,6 +1352,15 @@
     </div>
     </div>
 
+    <button
+      class="landingFaqBtn"
+      id="landingFaqBtn"
+      type="button"
+      aria-label="Open portal information"
+      title="Open portal information"
+      data-i18n-aria-label="faq_open_announcement"
+      data-i18n-title="faq_open_announcement">?</button>
+
     <div class="hero">
       <h1 data-i18n="hero_title">Jharkhand Electoral Roll - 2003</h1>
       <p data-i18n="hero_subtitle">Search for your name in Jharkhand’s 2003 SIR</p>
@@ -1404,9 +1443,9 @@
     </div>
 
     <div class="footerLinks">
-      <a href="#" id="helpLink"><span class="ic"></span> <span data-i18n="need_help">Need help?</span></a>
+      <a href="https://wa.me/918828290489" id="helpLink"><span class="ic"></span> <span data-i18n="need_help">Need help?</span></a>
       <a href="#" id="feedbackLink"><span class="ic"></span> <span data-i18n="feedback">Have a suggestion? Leave feedback!</span></a>
-      <a href="#" id="codeLink"><span class="ic"></span> <span data-i18n="contribute">Contribute to code</span></a>
+      <a href="https://github.com/sujay-k1/voter-search.git" id="codeLink"><span class="ic"></span> <span data-i18n="contribute">Contribute to code</span></a>
     </div>
   </section>
 
@@ -1498,7 +1537,7 @@
 
           <div style="position:relative;">
             <button class="pillBtn" id="moreFiltersBtn" type="button">
-              <span class="funnel" aria-hidden="true"></span>
+              <span class="material-icons-outlined funnel" aria-hidden="true">filter_alt</span>
               <span data-i18n="more_filters">More filters</span>
             </button>
             <div class="popover" style="min-width: 240px;" id="filtersPopover" aria-hidden="true"></div>
@@ -1619,7 +1658,10 @@
           <ul class="announcementGaps">
             <li data-i18n="announce_gap_1">AC36: Part 63</li>
             <li data-i18n="announce_gap_2">AC73: Parts 186-256</li>
-            <li data-i18n="announce_gap_3">AC40: Parts 275, 281</li>
+            <li data-i18n="announce_gap_3">AC40: Parts 1-100, 186, 187, 197-200, 275, 281</li>
+            <li data-i18n="announce_gap_4">AC64: Part 214</li>
+            <li data-i18n="announce_gap_5">AC79: Parts 37</li>
+            <li data-i18n="announce_gap_6">AC60: Parts 28, 162</li>
           </ul>
           <p class="announcementText" data-i18n="announce_gap_report">There may be other missing ACs/parts. Please report issues on WhatsApp:</p>
           <a class="announcementWhatsApp" href="https://wa.me/918828290489" target="_blank" rel="noopener noreferrer" data-i18n="announce_whatsapp">8828290489</a>
