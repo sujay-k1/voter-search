@@ -104,6 +104,7 @@ export const I18N = {
     status_select_district: "शुरू करने के लिए ज़िला चुनें।",
     status_enter_query: "नाम लिखें।",
     status_select_district_first: "पहले ज़िला चुनें।",
+    hint_select_district_then_type_name: "कृपया पहले ज़िला चुनें, फिर अपना नाम लिखें।",
     status_no_acs_selected: "कोई निर्वाचित क्षेत्र चयनित नहीं है।",
     status_cleared: "क्लियर हो गया।",
     status_ready_results: "तैयार • {n} परिणाम",
@@ -120,9 +121,34 @@ export const I18N = {
     banner_important: "Important note:",
     banner_text: "Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.",
     know_more: "Know more",
-    go_back: "← Go back",
+    go_back: "Go back",
+    announce_roll_title: "Jharkhand Electoral Roll - 2003",
     announce_title: "About the portal, why it exists, and how to use!",
     announce_intro: "Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.",
+    announce_about_heading: "A little bit about this:",
+    announce_about_text:
+      "This portal helps you find your name in the 2003 Special Intensive Revision (SIR) electoral roll and spot common issues like age, name spelling, relationship type, and relative’s name mismatches.",
+    announce_need_heading: "Why was this needed?",
+    announce_need_ceo: "CEO Jharkhand provides part-wise PDF downloads (no reliable text search in many readers)",
+    announce_link_ceo: "https://ceojh.jharkhand.gov.in/mrollpdf1/aceng.aspx",
+    announce_need_eci:
+      "ECI provides an online Search in SIR tool that handles some misspellings, but not all OCR/typing errors",
+    announce_link_eci: "https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QW0DSE",
+    announce_tips_heading: "Search tips to make the best use of this:",
+    announce_tip_1: "Search using your relative’s name (as on your voter ID), if your own name doesn’t surface.",
+    announce_tip_2:
+      "If you’re unsure of your 2003 constituency/part, search across the entire district, then drill down to the right AC/part.",
+    announce_tip_3:
+      "Try a roughly similar spelling, then narrow using age range (as in 2003), gender, and relative’s name (even approximate).",
+    announce_note_heading: "Important note:",
+    announce_note_text:
+      "These rolls were digitized using OCR, so the machine-readable text can differ from the scanned PDF. Always match the PDF entry with the search result table before taking action.",
+    announce_gaps_heading: "Known gaps (currently missing in this database)",
+    announce_gap_1: "AC36: Part 63",
+    announce_gap_2: "AC73: Parts 186-256",
+    announce_gap_3: "AC40: Parts 275, 281",
+    announce_gap_report: "There may be other missing ACs/parts. Please report issues on WhatsApp:",
+    announce_whatsapp: "8828290489",
 
 
     status_stage0: "स्टेज 0: निर्वाचन क्षेत्र {ac} लोड हो रहा है ({i}/{n})…",
@@ -250,6 +276,7 @@ export const I18N = {
     status_select_district: "Start karne ke liye district select karein.",
     status_enter_query: "Query enter karein.",
     status_select_district_first: "Pehle district select karein.",
+    hint_select_district_then_type_name: "Please pehle district select karein, phir apna naam type karein.",
     status_no_acs_selected: "Koi AC selected nahi hai.",
     status_cleared: "Cleared.",
     status_ready_results: "Ready • {n} results",
@@ -266,9 +293,34 @@ export const I18N = {
     banner_important: "Important note:",
     banner_text: "Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.",
     know_more: "Know more",
-    go_back: "← Go back",
+    go_back: "Go back",
+    announce_roll_title: "Jharkhand Electoral Roll - 2003",
     announce_title: "About the portal, why it exists, and how to use!",
     announce_intro: "Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.",
+    announce_about_heading: "A little bit about this:",
+    announce_about_text:
+      "This portal helps you find your name in the 2003 Special Intensive Revision (SIR) electoral roll and spot common issues like age, name spelling, relationship type, and relative’s name mismatches.",
+    announce_need_heading: "Why was this needed?",
+    announce_need_ceo: "CEO Jharkhand provides part-wise PDF downloads (no reliable text search in many readers)",
+    announce_link_ceo: "https://ceojh.jharkhand.gov.in/mrollpdf1/aceng.aspx",
+    announce_need_eci:
+      "ECI provides an online Search in SIR tool that handles some misspellings, but not all OCR/typing errors",
+    announce_link_eci: "https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QW0DSE",
+    announce_tips_heading: "Search tips to make the best use of this:",
+    announce_tip_1: "Search using your relative’s name (as on your voter ID), if your own name doesn’t surface.",
+    announce_tip_2:
+      "If you’re unsure of your 2003 constituency/part, search across the entire district, then drill down to the right AC/part.",
+    announce_tip_3:
+      "Try a roughly similar spelling, then narrow using age range (as in 2003), gender, and relative’s name (even approximate).",
+    announce_note_heading: "Important note:",
+    announce_note_text:
+      "These rolls were digitized using OCR, so the machine-readable text can differ from the scanned PDF. Always match the PDF entry with the search result table before taking action.",
+    announce_gaps_heading: "Known gaps (currently missing in this database)",
+    announce_gap_1: "AC36: Part 63",
+    announce_gap_2: "AC73: Parts 186-256",
+    announce_gap_3: "AC40: Parts 275, 281",
+    announce_gap_report: "There may be other missing ACs/parts. Please report issues on WhatsApp:",
+    announce_whatsapp: "8828290489",
 
 
     status_stage0: "Stage 0: AC {ac} load ho raha hai ({i}/{n})…",
@@ -394,6 +446,7 @@ export const I18N = {
     status_select_district: "Select District to start.",
     status_enter_query: "Enter a query.",
     status_select_district_first: "Select a district first.",
+    hint_select_district_then_type_name: "Please select a district first and then type your name.",
     status_no_acs_selected: "No ACs selected.",
     status_cleared: "Cleared.",
     status_ready_results: "Ready • {n} results",
@@ -410,9 +463,34 @@ export const I18N = {
     banner_important: "Important note:",
     banner_text: "Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.",
     know_more: "Know more",
-    go_back: "← Go back",
+    go_back: "Go back",
+    announce_roll_title: "Jharkhand Electoral Roll - 2003",
     announce_title: "About the portal, why it exists, and how to use!",
     announce_intro: "Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.",
+    announce_about_heading: "A little bit about this:",
+    announce_about_text:
+      "This portal helps you find your name in the 2003 Special Intensive Revision (SIR) electoral roll and spot common issues like age, name spelling, relationship type, and relative’s name mismatches.",
+    announce_need_heading: "Why was this needed?",
+    announce_need_ceo: "CEO Jharkhand provides part-wise PDF downloads (no reliable text search in many readers)",
+    announce_link_ceo: "https://ceojh.jharkhand.gov.in/mrollpdf1/aceng.aspx",
+    announce_need_eci:
+      "ECI provides an online Search in SIR tool that handles some misspellings, but not all OCR/typing errors",
+    announce_link_eci: "https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QW0DSE",
+    announce_tips_heading: "Search tips to make the best use of this:",
+    announce_tip_1: "Search using your relative’s name (as on your voter ID), if your own name doesn’t surface.",
+    announce_tip_2:
+      "If you’re unsure of your 2003 constituency/part, search across the entire district, then drill down to the right AC/part.",
+    announce_tip_3:
+      "Try a roughly similar spelling, then narrow using age range (as in 2003), gender, and relative’s name (even approximate).",
+    announce_note_heading: "Important note:",
+    announce_note_text:
+      "These rolls were digitized using OCR, so the machine-readable text can differ from the scanned PDF. Always match the PDF entry with the search result table before taking action.",
+    announce_gaps_heading: "Known gaps (currently missing in this database)",
+    announce_gap_1: "AC36: Part 63",
+    announce_gap_2: "AC73: Parts 186-256",
+    announce_gap_3: "AC40: Parts 275, 281",
+    announce_gap_report: "There may be other missing ACs/parts. Please report issues on WhatsApp:",
+    announce_whatsapp: "8828290489",
 
 
     status_stage0: "Stage 0: Loading AC {ac} ({i}/{n})…",

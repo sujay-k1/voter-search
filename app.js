@@ -1103,6 +1103,9 @@ const progressRingResults = $("progressRingResults");
 const progressPctResults = $("progressPctResults");
 const progressStageResults = $("progressStageResults");
 const progressSubResults = $("progressSubResults");
+
+const qDisabledHintLanding = $("qDisabledHintLanding");
+const qDisabledHintResults = $("qDisabledHintResults");
 const landingInfoBanner = $("landingInfoBanner");
 const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
@@ -1382,9 +1385,51 @@ function getActiveQueryInput() {
   return isResultsVisible() ? qResults : qLanding;
 }
 
+const DISABLED_QUERY_HINT_MS = 2200;
+const disabledQueryHintTimers = new Map();
+
+function hideDisabledQueryHint(hintEl) {
+  if (!hintEl) return;
+  const timer = disabledQueryHintTimers.get(hintEl);
+  if (timer) clearTimeout(timer);
+  disabledQueryHintTimers.delete(hintEl);
+  hintEl.classList.remove("show");
+  hintEl.setAttribute("aria-hidden", "true");
+}
+
+function showDisabledQueryHint(hintEl) {
+  if (!hintEl) return;
+  hideDisabledQueryHint(hintEl);
+  hintEl.classList.add("show");
+  hintEl.setAttribute("aria-hidden", "false");
+  const timer = setTimeout(() => {
+    hintEl.classList.remove("show");
+    hintEl.setAttribute("aria-hidden", "true");
+    disabledQueryHintTimers.delete(hintEl);
+  }, DISABLED_QUERY_HINT_MS);
+  disabledQueryHintTimers.set(hintEl, timer);
+}
+
+function wireDisabledQueryTooltip({ wrapEl, inputEl, hintEl }) {
+  if (!wrapEl || !inputEl || !hintEl) return;
+  if (wrapEl.dataset.disabledHintWired === "1") return;
+
+  wrapEl.dataset.disabledHintWired = "1";
+  wrapEl.addEventListener("click", (e) => {
+    if (!inputEl.disabled) return;
+    if (districtACsAll.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showDisabledQueryHint(hintEl);
+    setStatus(t("hint_select_district_then_type_name"));
+  });
+}
+
 function setSearchEnabled(enabled) {
   qLanding.disabled = !enabled;
   qResults.disabled = !enabled;
+  hideDisabledQueryHint(qDisabledHintLanding);
+  hideDisabledQueryHint(qDisabledHintResults);
   syncSearchButtonState();
 
   try {
@@ -3705,6 +3750,11 @@ function initNameEnhancements() {
     onCommit: (_text) => runSearch(),
     getDisabledState: () => qLanding.disabled,
   });
+  wireDisabledQueryTooltip({
+    wrapEl: wrapLanding,
+    inputEl: qLanding,
+    hintEl: qDisabledHintLanding,
+  });
 
   // Results
   const wrapResults = $("enhancedWrapResults");
@@ -3722,6 +3772,11 @@ function initNameEnhancements() {
     iosHintCloseEl: iosHintCloseResults,
     onCommit: (_text) => runSearch(),
     getDisabledState: () => qResults.disabled,
+  });
+  wireDisabledQueryTooltip({
+    wrapEl: wrapResults,
+    inputEl: qResults,
+    hintEl: qDisabledHintResults,
   });
 
   // Relative field: your current UI stores relative name filter inside modal (not a persistent field).
