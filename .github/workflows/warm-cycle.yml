@@ -2,8 +2,8 @@ name: Warm Turso district DBs (cycle)
 
 on:
   schedule:
-  - cron: "3-59/10 * * * *"
-  workflow_dispatch: {}
+    - cron: "3-59/10 * * * *"
+  workflow_dispatch:
 
 concurrency:
   group: warm-cycle
@@ -23,15 +23,18 @@ jobs:
 
       - run: npm ci
 
+      - name: Debug trigger + UTC time
+        run: |
+          echo "event=${{ github.event_name }}"
+          date -u
+
       - run: node scripts/warm_cycle_turso.cjs
         env:
           TURSO_TOKEN_C: ${{ secrets.TURSO_TOKEN_C }}
           TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
-
           TURSO_USER: ${{ secrets.TURSO_USER }}
           TURSO_URL_SUFFIX: ${{ secrets.TURSO_URL_SUFFIX }}
           TURSO_DB_PREFIX: ${{ secrets.TURSO_DB_PREFIX }}
-
           WARM_STATE: S27
           WARM_BATCH: "6"
           WARM_CONCURRENCY: "3"
