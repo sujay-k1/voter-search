@@ -1465,7 +1465,7 @@ function isLandingVisible() {
   return window.getComputedStyle(landingSection).display !== "none";
 }
 
-const LANDING_INPUT_TOP_GAP_PX = 24;
+const LANDING_INPUT_TOP_GAP_PX = 96;
 const KEYBOARD_OPEN_DELTA_PX = 110;
 const KEYBOARD_CLOSE_DELTA_PX = 40;
 const AUTO_SCROLL_RESTORE_TOLERANCE_PX = 120;
