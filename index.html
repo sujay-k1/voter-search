@@ -913,21 +913,28 @@
       border: 1px solid rgba(0,0,0,.10);
       background: #fff;
       box-shadow: var(--shadow);
+      --table-head-h: 44px;
+      --table-head-shadow-h: 14px;
     }
-    .tableRegion::after{
-      content: "";
-      position: absolute;
+    .tableHeaderShadow{
+      position: sticky;
+      top: 0;
       left: 0;
-      right: 0;
-      top: 41px;
-      height: 14px;
-      pointer-events: none;
+      width: 100%;
+      height: 0;
       opacity: 0;
       z-index: 5;
-      background: linear-gradient(to bottom, rgba(0,0,0,.20), rgba(0,0,0,0));
+      pointer-events: none;
       transition: opacity 140ms ease;
     }
-    .tableRegion.scrolled-y::after{ opacity: 1; }
+    .tableHeaderShadow::before{
+      content: "";
+      display: block;
+      height: var(--table-head-shadow-h);
+      margin-top: calc(var(--table-head-h) - 1px);
+      background: linear-gradient(to bottom, rgba(0,0,0,.20), rgba(0,0,0,0));
+    }
+    .tableRegion.scrolled-y .tableHeaderShadow{ opacity: 1; }
 
     /* scroll-to-top FAB (mobile only via media query) */
     #scrollTopFab{ display:none;}
@@ -1680,6 +1687,7 @@
             <div class="progressSub" id="progressSubResults"></div>
           </div>
         </div>
+        <div class="tableHeaderShadow" id="tableHeaderShadow" aria-hidden="true"></div>
         <div class="results" id="results"></div>
         <button id="scrollTopFab" type="button" aria-label="Scroll to top" style="position: fixed;"><span  data-i18n="Scroll_to_top">↑</span></button>
       </div>

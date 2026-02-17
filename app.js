@@ -1236,6 +1236,7 @@ const clearBtnTop = $("clearBtnTop");
 
 // Results table scroll container (for mobile-only compact header behavior)
 const tableRegion = document.querySelector("#resultsSection .tableRegion");
+const tableHeaderShadow = $("tableHeaderShadow");
 const scrollTopFab = $("scrollTopFab");
 const resultsTopEl = resultsSection?.querySelector?.(".resultsTop") || null;
 const resultsBodyEl = resultsSection?.querySelector?.(".resultsBody") || null;
@@ -1612,6 +1613,14 @@ function syncStickyColScrollShadow() {
   tableRegion.classList.toggle("scrolled-y", tableRegion.scrollTop > 0);
 }
 
+function syncTableHeaderShadowOffset() {
+  if (!tableRegion || !tableHeaderShadow) return;
+  const firstTh = tableRegion.querySelector("thead th");
+  const h = Math.round(firstTh?.getBoundingClientRect?.().height || 0);
+  const safe = Math.max(36, h || 44);
+  tableRegion.style.setProperty("--table-head-h", `${safe}px`);
+}
+
 function initStickyColScrollShadowSync() {
   if (!tableRegion) return;
 
@@ -1620,6 +1629,7 @@ function initStickyColScrollShadowSync() {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = null;
+      syncTableHeaderShadowOffset();
       syncStickyColScrollShadow();
     });
   };
@@ -1628,6 +1638,7 @@ function initStickyColScrollShadowSync() {
   window.addEventListener("resize", sync);
   window.visualViewport?.addEventListener?.("resize", sync);
 
+  syncTableHeaderShadowOffset();
   syncStickyColScrollShadow();
 }
 
@@ -3248,6 +3259,7 @@ async function renderPage() {
   if (total) setStatus(t("status_showing_range", { from: start + 1, to: end, total }));
   else setStatus(t("status_ready_results", { n: 0 }));
 
+  syncTableHeaderShadowOffset();
   syncStickyColScrollShadow();
 }
 
