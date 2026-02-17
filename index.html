@@ -334,9 +334,9 @@
 
     .listeningChip{
       position: absolute;
-      left: 10px;
-      top: 50%;
-      transform: translateY(-50%);
+      right: 0;
+      top: calc(100% + 8px);
+      transform: none;
       height: 28px;
       padding: 0 12px;
       border-radius: 999px;
@@ -349,13 +349,12 @@
       align-items:center;
       pointer-events:none;
       white-space: nowrap;
+      z-index: 66;
     }
     .enhancedInputWrap.isListening .listeningChip{ display:flex; }
 
-    /* Make chip not overlap typed text too much; JS may toggle this only when listening */
-    .enhancedInputWrap.isListening .qInput{
-      display: none;
-    }
+    /* Keep input visible so real-time speech preview remains visible while listening */
+    .enhancedInputWrap.isListening .qInput{ display: block; }
 
     .inlineHint{
       margin-top: 10px;
@@ -1210,8 +1209,8 @@
       .announcementContent{ max-width: none; }
       .announcementTitle{ font-size: 22px; line-height: 1.23; margin-bottom: 12px; }
       .announcementLead{ font-size: 16px; line-height: 1.5; margin-bottom: 20px; max-width: none; }
-      .announcementBlock{ margin-top: 15px; }
-      .announcementHeading{ font-size: 18px; line-height: 1.25; margin-bottom: 8px; }
+      .announcementBlock{ margin-top: 32px; }
+      .announcementHeading{ font-size: 18px; line-height: 1.25; margin-bottom: 16px; }
       .announcementText{ font-size: 16px; line-height: 1.5; margin-bottom: 7px; }
       .announcementLink{ font-size: 16px; line-height: 1.42; margin-bottom: 9px; }
       .announcementTips{ padding-left: 20px; }
