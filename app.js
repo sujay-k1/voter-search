@@ -3011,14 +3011,18 @@ function refreshOnStateChange(reason) {
 
     // AC selection changes should NOT rerun the whole search if we already have results
     // for the same (district, query, scope, exactOn). We just filter/expand incrementally.
-    if (reason === "acs" && lastSearchCtx && masterRankedAll && masterRankedAll.length) {
-      const qStrict = current.lastQuery || norm(getActiveQueryInput().value || "");
+    if (reason === "acs") {
+      const qStrict = current.lastQuery || lastSearchCtx?.query || norm(getActiveQueryInput().value || "");
       const districtSlug = slugifyDistrictId(currentDistrictId || "");
       const exactOn = exactOnFromIncludeTyping();
       const scopeForWorker = searchScope;
 
+      // Fast path: reuse already-ranked rows and only expand for newly-selected ACs.
       if (
         qStrict &&
+        lastSearchCtx &&
+        masterRankedAll &&
+        masterRankedAll.length &&
         districtSlug === lastSearchCtx.districtSlug &&
         qStrict === lastSearchCtx.query &&
         scopeForWorker === lastSearchCtx.scope &&
@@ -3052,9 +3056,18 @@ function refreshOnStateChange(reason) {
         setStatus(t("status_ready_results", { n: rankedView.length }));
         return;
       }
+
+      // Safe fallback: force a rerun for the current displayed query.
+      if (qStrict) {
+        current.lastQuery = qStrict;
+        qLanding.value = qStrict;
+        qResults.value = qStrict;
+        await runSearch();
+      }
+      return;
     }
 
-    // Default behavior for query/scope changes: rerun
+    // Default behavior for query/scope/exact changes: rerun
     if (current.lastQuery) {
       await runSearch();
     }
