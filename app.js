@@ -1619,9 +1619,11 @@ function syncTableHeaderShadowOffset() {
   const h = Math.round(firstTh?.getBoundingClientRect?.().height || 0);
   const safe = Math.max(36, h || 44);
   tableRegion.style.setProperty("--table-head-h", `${safe - 1}px`);
-  // Keep the shadow anchored just under the sticky header.
-  const y = Math.max(0, safe - 1);
-  tableHeaderShadow.style.transform = `translateY(${y}px)`;
+  // The shadow node sits inside the scroll container, so counter-scroll it
+  // to keep it visually fixed under the sticky header.
+  const x = Math.max(0, tableRegion.scrollLeft);
+  const y = Math.max(0, tableRegion.scrollTop + safe - 1);
+  tableHeaderShadow.style.transform = `translate(${x}px, ${y}px)`;
   tableHeaderShadow.classList.toggle("show", tableRegion.scrollTop > 0 || tableRegion.scrollLeft > 1);
 }
 
