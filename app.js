@@ -3618,12 +3618,21 @@ function renderAcPopover() {
       chevron: false,
       selected: effectiveSelected,
       onClick: () => {
-        if (isAllACsSelected()) selectedACs = new Set(districtACsAll);
+        if (isAllACsSelected()) {
+          // From "All ACs", first click should select only the clicked AC.
+          selectedACs = new Set([ac]);
+        } else {
+          if (selectedACs.has(ac)) {
+            selectedACs.delete(ac);
+            // If user deselects the last selected AC, return to "All ACs".
+            if (selectedACs.size === 0) selectedACs.clear();
+          } else {
+            selectedACs.add(ac);
+          }
 
-        if (selectedACs.has(ac)) selectedACs.delete(ac);
-        else selectedACs.add(ac);
-
-        if (selectedACs.size === districtACsAll.length) selectedACs.clear();
+          // If user ends up selecting every AC individually, collapse to "All ACs".
+          if (selectedACs.size === districtACsAll.length) selectedACs.clear();
+        }
 
         updateSelectedAcText();
         renderAcPopover();
