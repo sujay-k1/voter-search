@@ -1609,7 +1609,7 @@ function clearMobileCompactResultsBodyHeight() {
 function syncStickyColScrollShadow() {
   if (!tableRegion) return;
   tableRegion.classList.toggle("scrolled-x", tableRegion.scrollLeft > 1);
-  tableRegion.classList.toggle("scrolled-y", tableRegion.scrollTop > 1);
+  tableRegion.classList.toggle("scrolled-y", tableRegion.scrollTop > 0);
 }
 
 function initStickyColScrollShadowSync() {
