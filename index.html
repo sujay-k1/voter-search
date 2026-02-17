@@ -108,7 +108,7 @@
     .searchRowWrap{
       max-width: 980px;
       width: 100%;
-      margin: 22px auto 0;
+      margin: 44px auto 0;
       padding: 0 18px;
     }
     .searchRow{
@@ -244,9 +244,9 @@
       border: 1px solid rgba(0,0,0,.18);
       background: rgba(23,23,23,.94);
       color: #fff;
-      font-size: 12px;
+      font-size: 14px;
       line-height: 1.35;
-      font-weight: 650;
+      font-weight: 500;
       box-shadow: 0 10px 26px rgba(0,0,0,.22);
       pointer-events: none;
     }
@@ -1192,8 +1192,11 @@
         right: 38px;
         bottom: 48px;
       }
+      .searchRowWrap {margin: 24px auto 0px;}}
+      .hero {margin: 0px auto auto auto; padding: 24px 18px 24px 18px;}
+      .hero_title {line-height: 50px;}
 
-      .infoBanner{ padding: 16px; margin: 0px 12px; border-radius: 16px; display: block;}
+      .infoBanner{ padding: 0px; margin: 0px 12px; border-radius: 16px; display: block;}
       .infoBannerHead{flex-direction: column; align-items: flex-start;}
       .infoBannerTitle{ font-size: 16px; }
       .infoBannerText{ font-size: 14px; }
@@ -1361,11 +1364,21 @@
       data-i18n-aria-label="faq_open_announcement"
       data-i18n-title="faq_open_announcement">?</button>
 
+    <div class="infoBanner" id="landingInfoBanner">
+      <div class="infoBannerHead">
+        <div class="bannerContentWrap">
+          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
+          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
+        </div>
+        <button class="infoBannerLink" id="landingKnowMoreBtnMobile" type="button" data-i18n="know_more">Know more</button>
+      </div>
+    </div>
+
     <div class="hero">
       <h1 data-i18n="hero_title">Jharkhand Electoral Roll - 2003</h1>
       <p data-i18n="hero_subtitle">Search for your name in Jharkhand’s 2003 SIR</p>
 
-      <div class="searchRowWrap" style="margin-top:44px;">
+      <div class="searchRowWrap">
         <div class="searchRow">
           <div class="searchPill" aria-label="Search bar">
 
@@ -1397,7 +1410,13 @@
                 autocomplete="off" spellcheck="false" />
 
               <div class="fieldTooltip" id="qDisabledHintLanding" aria-hidden="true">
-                <span data-i18n="hint_select_district_then_type_name">Please select a district first and then type your name.</span>
+  
+                <!-- SVG Arrow -->
+                <svg class="tooltip-arrow" width="16" height="8" viewBox="0 0 16 8" style="position: absolute; top: -8px; left: 14px;">
+                  <path d="M0 8 L8 0 L16 8 Z" fill="#333"></path>
+                </svg>
+
+                <span data-i18n="hint_select_district_then_type_name">कृपया पहले ज़िला चुनें, फिर अपना नाम लिखें।</span>
               </div>
 
               <button id="micBtnLanding" class="micBtn" type="button" aria-label="Voice input">
@@ -1427,18 +1446,6 @@
             Tip: You can type your name or your relative’s name (Father, husband, mother)
           </div>
         </div>
-      </div>
-    </div>
-
-   
-
-    <div class="infoBanner" id="landingInfoBanner">
-      <div class="infoBannerHead">
-        <div class="bannerContentWrap">
-          <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
-          <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
-        </div>
-        <button class="infoBannerLink" id="landingKnowMoreBtnMobile" type="button" data-i18n="know_more">Know more</button>
       </div>
     </div>
 
