@@ -220,7 +220,7 @@
       color: #1a1a1a;
       min-width: 0;
     }
-    .qInput::placeholder{ color: rgba(0,0,0,.35); }
+    .qInput::placeholder{ color: rgba(0,0,0,.70); }
 
     /* leave room for mic button inside the same field area */
     .enhancedInputWrap .qInput{
@@ -230,6 +230,7 @@
     .qInput:disabled{
       cursor: not-allowed;
       pointer-events: none;
+      color: rgba(0,0,0,.35);
     }
 
     .fieldTooltip{
@@ -637,10 +638,10 @@
       max-width: 650px;
     }
     .announcementBlock{
-      margin-top: 18px;
+      margin-top: 26px;
     }
     .announcementHeading{
-      margin: 0 0 8px;
+      margin: 0 0 16px;
       color:#1d1f24;
       font-size: clamp(26px, 2.7vw, 34px);
       line-height: 1.14;
