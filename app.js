@@ -1618,7 +1618,10 @@ function syncTableHeaderShadowOffset() {
   const firstTh = tableRegion.querySelector("thead th");
   const h = Math.round(firstTh?.getBoundingClientRect?.().height || 0);
   const safe = Math.max(36, h || 44);
-  tableRegion.style.setProperty("--table-head-h", `${safe}px`);
+  tableRegion.style.setProperty("--table-head-h", `${safe - 1}px`);
+  const y = Math.max(0, tableRegion.scrollTop + safe - 1);
+  tableHeaderShadow.style.transform = `translateY(${y}px)`;
+  tableHeaderShadow.classList.toggle("show", tableRegion.scrollTop > 0);
 }
 
 function initStickyColScrollShadowSync() {
@@ -1629,6 +1632,7 @@ function initStickyColScrollShadowSync() {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = null;
+      syncTableHeaderShadowOffset();
       syncStickyColScrollShadow();
     });
   };
