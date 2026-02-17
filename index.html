@@ -914,6 +914,20 @@
       background: #fff;
       box-shadow: var(--shadow);
     }
+    .tableRegion::after{
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 52px;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 5;
+      box-shadow: inset 0 -14px 14px -14px rgba(0,0,0,.62);
+      transition: opacity 140ms ease;
+    }
+    .tableRegion.scrolled-y::after{ opacity: 1; }
 
     /* scroll-to-top FAB (mobile only via media query) */
     #scrollTopFab{ display:none;}
@@ -923,7 +937,7 @@
     .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; transition: box-shadow 140ms ease; }
     th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; transition: box-shadow 140ms ease; }
     .tableRegion.scrolled-y th{
-      box-shadow: 0 8px 12px -10px rgba(0,0,0,.42);
+      box-shadow: 0 10px 14px -12px rgba(0,0,0,.62);
     }
     .tableRegion.scrolled-x td.stickyCol{
       box-shadow: 10px 0 16px -10px rgba(0,0,0,.38), 1px 0 0 rgba(0,0,0,.05);
@@ -959,7 +973,7 @@
       justify-content:flex-start;
     }
     .pager .miniBtn,
-    .clearSearchBtnTop .miniBtn{
+    .resultsActionStack .miniBtn{
       height: 38px;
       border-radius: var(--r-999);
       border: 1px solid rgba(0,0,0,.22);
@@ -973,9 +987,11 @@
       cursor: pointer;
       margin-left: auto;
     }
-    .clearSearchBtnTop{
-      display: none;
+    .resultsActionStack{
+      display: flex;
+      align-items: flex-end;
     }
+    .resultsActionStack .clearSearchBtnTop{ display: none; }
 
     .pager .muted{ color: #4a4a4a; font-weight: 500; }
 
@@ -1219,13 +1235,16 @@
       .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
       .seg{justify-content: space-evenly;}
       .pager .clearSearchBtn{ display: none; }
-      .clearSearchBtnTop{
+      .resultsActionStack{
         display: flex;
-        position: absolute;
-        right: 0;
-        bottom: calc(100% + 8px);
-        z-index: 60;
+        flex-direction: column;
+        justify-content: space-evenly;
+        align-items: stretch;
+        height: 108px;
+        min-width: 120px;
       }
+      .resultsActionStack .clearSearchBtnTop{ display: block; }
+      .resultsActionStack #searchBtnResults{ min-width: 120px; }
       .resultsBody{z-index: 40; height: calc(100dvh - 333px); padding: 12px 12px 0px; margin: 0px 0px 0;}
       .pager{z-index: 50; font-size: x-small; flex-wrap: nowrap;}
       .filtersLeft{ justify-content: space-between; width: -webkit-fill-available;}
@@ -1585,9 +1604,9 @@
             </div>
             </div>
 
-            <button id="searchBtnResults" class="btn btnPrimary" type="button" disabled data-i18n="btn_search">Search</button>
-            <div class="clearSearchBtnTop">
-              <button class="miniBtn" id="clearBtnTop" type="button" data-i18n="clear">Clear</button>
+            <div class="resultsActionStack">
+              <button class="miniBtn clearSearchBtnTop" id="clearBtnTop" type="button" data-i18n="clear">Clear</button>
+              <button id="searchBtnResults" class="btn btnPrimary" type="button" disabled data-i18n="btn_search">Search</button>
             </div>
         </div>
         <div class="scopeWrap">
