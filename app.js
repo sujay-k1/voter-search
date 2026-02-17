@@ -1350,7 +1350,10 @@ function showResults() {
   resultsSection.style.display = "block";
   if (announcementSection) announcementSection.style.display = "none";
   // Sync compact UI state (in case user navigates back to results).
-  if (tableRegion) setMobileTableCompact(tableRegion.scrollTop > 8);
+  if (tableRegion) {
+    setMobileTableCompact(tableRegion.scrollTop > 8);
+    syncStickyColScrollShadow();
+  }
 }
 
 function showAnnouncementPage() {
@@ -1591,6 +1594,11 @@ function clearMobileCompactResultsBodyHeight() {
   resultsBodyEl.style.height = "";
 }
 
+function syncStickyColScrollShadow() {
+  if (!tableRegion) return;
+  tableRegion.classList.toggle("scrolled-x", tableRegion.scrollLeft > 1);
+}
+
 function setMobileTableCompact(on) {
   if (!isNarrowMobileForTableCompact() || !isResultsVisible()) {
     resultsSection.classList.remove("mobileCompact");
@@ -1618,6 +1626,7 @@ function initMobileTableScrollCompactUI() {
   let raf = null;
 
   const syncFromScroll = () => {
+    syncStickyColScrollShadow();
     // Only act when results are visible.
     if (!isResultsVisible() || !isNarrowMobileForTableCompact()) {
       resetMobileTableCompactUI();
@@ -3206,6 +3215,8 @@ async function renderPage() {
 
   if (total) setStatus(t("status_showing_range", { from: start + 1, to: end, total }));
   else setStatus(t("status_ready_results", { n: 0 }));
+
+  syncStickyColScrollShadow();
 }
 
 function renderTable(rows, infoMap) {
