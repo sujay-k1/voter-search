@@ -1109,6 +1109,7 @@ const qDisabledHintResults = $("qDisabledHintResults");
 const landingInfoBanner = $("landingInfoBanner");
 const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
+const landingKnowMoreBtnMobile = $("landingKnowMoreBtnMobile");
 const resultsInfoToast = $("resultsInfoToast");
 const resultsToastRingFg = $("resultsToastRingFg");
 const announcementSection = $("announcementSection");
@@ -3918,7 +3919,7 @@ pageSizeBtn.onclick = () => {
   else openPageSizePopover();
 };
 
-landingKnowMoreBtn?.addEventListener("click", () => {
+landingKnowMoreBtnMobile?.addEventListener("click", () => {
   try {
     localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
   } catch {}
