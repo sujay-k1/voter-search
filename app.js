@@ -1625,7 +1625,14 @@ function initStickyColScrollShadowSync() {
   if (!tableRegion) return;
 
   let raf = null;
-  const sync = () => {
+  const syncScrollState = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = null;
+      syncStickyColScrollShadow();
+    });
+  };
+  const syncAll = () => {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = null;
@@ -1634,12 +1641,11 @@ function initStickyColScrollShadowSync() {
     });
   };
 
-  tableRegion.addEventListener("scroll", sync, { passive: true });
-  window.addEventListener("resize", sync);
-  window.visualViewport?.addEventListener?.("resize", sync);
+  tableRegion.addEventListener("scroll", syncScrollState, { passive: true });
+  window.addEventListener("resize", syncAll);
+  window.visualViewport?.addEventListener?.("resize", syncAll);
 
-  syncTableHeaderShadowOffset();
-  syncStickyColScrollShadow();
+  syncAll();
 }
 
 function setMobileTableCompact(on) {
