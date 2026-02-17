@@ -1103,9 +1103,13 @@ const progressRingResults = $("progressRingResults");
 const progressPctResults = $("progressPctResults");
 const progressStageResults = $("progressStageResults");
 const progressSubResults = $("progressSubResults");
+
+const qDisabledHintLanding = $("qDisabledHintLanding");
+const qDisabledHintResults = $("qDisabledHintResults");
 const landingInfoBanner = $("landingInfoBanner");
 const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
+const landingKnowMoreBtnMobile = $("landingKnowMoreBtnMobile");
 const resultsInfoToast = $("resultsInfoToast");
 const resultsToastRingFg = $("resultsToastRingFg");
 const announcementSection = $("announcementSection");
@@ -1382,9 +1386,51 @@ function getActiveQueryInput() {
   return isResultsVisible() ? qResults : qLanding;
 }
 
+const DISABLED_QUERY_HINT_MS = 2200;
+const disabledQueryHintTimers = new Map();
+
+function hideDisabledQueryHint(hintEl) {
+  if (!hintEl) return;
+  const timer = disabledQueryHintTimers.get(hintEl);
+  if (timer) clearTimeout(timer);
+  disabledQueryHintTimers.delete(hintEl);
+  hintEl.classList.remove("show");
+  hintEl.setAttribute("aria-hidden", "true");
+}
+
+function showDisabledQueryHint(hintEl) {
+  if (!hintEl) return;
+  hideDisabledQueryHint(hintEl);
+  hintEl.classList.add("show");
+  hintEl.setAttribute("aria-hidden", "false");
+  const timer = setTimeout(() => {
+    hintEl.classList.remove("show");
+    hintEl.setAttribute("aria-hidden", "true");
+    disabledQueryHintTimers.delete(hintEl);
+  }, DISABLED_QUERY_HINT_MS);
+  disabledQueryHintTimers.set(hintEl, timer);
+}
+
+function wireDisabledQueryTooltip({ wrapEl, inputEl, hintEl }) {
+  if (!wrapEl || !inputEl || !hintEl) return;
+  if (wrapEl.dataset.disabledHintWired === "1") return;
+
+  wrapEl.dataset.disabledHintWired = "1";
+  wrapEl.addEventListener("click", (e) => {
+    if (!inputEl.disabled) return;
+    if (districtACsAll.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showDisabledQueryHint(hintEl);
+    setStatus(t("hint_select_district_then_type_name"));
+  });
+}
+
 function setSearchEnabled(enabled) {
   qLanding.disabled = !enabled;
   qResults.disabled = !enabled;
+  hideDisabledQueryHint(qDisabledHintLanding);
+  hideDisabledQueryHint(qDisabledHintResults);
   syncSearchButtonState();
 
   try {
@@ -1895,19 +1941,17 @@ async function preloadDistrictACs(acs, districtLabel) {
       setSearchEnabled(true);
       syncSearchButtonState();
 
-      // After district selection, focus the active query box (same behavior as before).
+      // iOS opens keyboard only when focus runs in the same trusted tap/click stack.
       try {
         const el = getActiveQueryInput();
         if (el && !el.disabled) {
-          setTimeout(() => {
+          try {
+            el.focus({ preventScroll: true });
+          } catch {
             try {
-              el.focus({ preventScroll: true });
-            } catch {
-              try {
-                el.focus();
-              } catch {}
-            }
-          }, 0);
+              el.focus();
+            } catch {}
+          }
         }
       } catch {}
     }
@@ -2967,14 +3011,18 @@ function refreshOnStateChange(reason) {
 
     // AC selection changes should NOT rerun the whole search if we already have results
     // for the same (district, query, scope, exactOn). We just filter/expand incrementally.
-    if (reason === "acs" && lastSearchCtx && masterRankedAll && masterRankedAll.length) {
-      const qStrict = current.lastQuery || norm(getActiveQueryInput().value || "");
+    if (reason === "acs") {
+      const qStrict = current.lastQuery || lastSearchCtx?.query || norm(getActiveQueryInput().value || "");
       const districtSlug = slugifyDistrictId(currentDistrictId || "");
       const exactOn = exactOnFromIncludeTyping();
       const scopeForWorker = searchScope;
 
+      // Fast path: reuse already-ranked rows and only expand for newly-selected ACs.
       if (
         qStrict &&
+        lastSearchCtx &&
+        masterRankedAll &&
+        masterRankedAll.length &&
         districtSlug === lastSearchCtx.districtSlug &&
         qStrict === lastSearchCtx.query &&
         scopeForWorker === lastSearchCtx.scope &&
@@ -3008,9 +3056,18 @@ function refreshOnStateChange(reason) {
         setStatus(t("status_ready_results", { n: rankedView.length }));
         return;
       }
+
+      // Safe fallback: force a rerun for the current displayed query.
+      if (qStrict) {
+        current.lastQuery = qStrict;
+        qLanding.value = qStrict;
+        qResults.value = qStrict;
+        await runSearch();
+      }
+      return;
     }
 
-    // Default behavior for query/scope changes: rerun
+    // Default behavior for query/scope/exact changes: rerun
     if (current.lastQuery) {
       await runSearch();
     }
@@ -3574,12 +3631,21 @@ function renderAcPopover() {
       chevron: false,
       selected: effectiveSelected,
       onClick: () => {
-        if (isAllACsSelected()) selectedACs = new Set(districtACsAll);
+        if (isAllACsSelected()) {
+          // From "All ACs", first click should select only the clicked AC.
+          selectedACs = new Set([ac]);
+        } else {
+          if (selectedACs.has(ac)) {
+            selectedACs.delete(ac);
+            // If user deselects the last selected AC, return to "All ACs".
+            if (selectedACs.size === 0) selectedACs.clear();
+          } else {
+            selectedACs.add(ac);
+          }
 
-        if (selectedACs.has(ac)) selectedACs.delete(ac);
-        else selectedACs.add(ac);
-
-        if (selectedACs.size === districtACsAll.length) selectedACs.clear();
+          // If user ends up selecting every AC individually, collapse to "All ACs".
+          if (selectedACs.size === districtACsAll.length) selectedACs.clear();
+        }
 
         updateSelectedAcText();
         renderAcPopover();
@@ -3707,6 +3773,11 @@ function initNameEnhancements() {
     onCommit: (_text) => runSearch(),
     getDisabledState: () => qLanding.disabled,
   });
+  wireDisabledQueryTooltip({
+    wrapEl: wrapLanding,
+    inputEl: qLanding,
+    hintEl: qDisabledHintLanding,
+  });
 
   // Results
   const wrapResults = $("enhancedWrapResults");
@@ -3724,6 +3795,11 @@ function initNameEnhancements() {
     iosHintCloseEl: iosHintCloseResults,
     onCommit: (_text) => runSearch(),
     getDisabledState: () => qResults.disabled,
+  });
+  wireDisabledQueryTooltip({
+    wrapEl: wrapResults,
+    inputEl: qResults,
+    hintEl: qDisabledHintResults,
   });
 
   // Relative field: your current UI stores relative name filter inside modal (not a persistent field).
@@ -3865,7 +3941,7 @@ pageSizeBtn.onclick = () => {
   else openPageSizePopover();
 };
 
-landingKnowMoreBtn?.addEventListener("click", () => {
+landingKnowMoreBtnMobile?.addEventListener("click", () => {
   try {
     localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
   } catch {}

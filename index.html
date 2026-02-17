@@ -226,6 +226,30 @@
       padding-right: 40px;
       padding-left: 4px;
     }
+    .qInput:disabled{
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .fieldTooltip{
+      position: absolute;
+      left: 0;
+      top: calc(100% + 8px);
+      z-index: 65;
+      display: none;
+      max-width: min(92vw, 420px);
+      padding: 9px 11px;
+      border-radius: 10px;
+      border: 1px solid rgba(0,0,0,.18);
+      background: rgba(23,23,23,.94);
+      color: #fff;
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 650;
+      box-shadow: 0 10px 26px rgba(0,0,0,.22);
+      pointer-events: none;
+    }
+    .fieldTooltip.show{ display: block; }
 
     .micBtn{
       position: absolute;
@@ -556,15 +580,130 @@
     .announcementPage{
       min-height: 100dvh;
       display:none;
-      padding: 42px 36px 24px;
+      padding: 42px 28px 56px;
     }
-    .announcementInner{ max-width: 980px; margin: 0 auto; }
+    .announcementInner{
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    .announcementTop{
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 34px;
+    }
     .announcementBack{
-      border:0; background:transparent; color:var(--accent); font-weight:700;
-      font-size: 34px; cursor:pointer; padding: 0; margin-bottom: 24px;
+      border:0;
+      background:transparent;
+      color:var(--accent);
+      font-weight:700;
+      font-size: 16px;
+      cursor:pointer;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
     }
-    .announcementTitle{ font-size: 68px; margin: 0 0 12px; line-height:1.06; }
-    .announcementCopy{ color:#444; font-size: 18px; line-height:1.55; }
+    .announcementBackArrow{
+      font-size: 1.25em;
+      line-height: 1;
+      font-weight: 800;
+    }
+    .announcementTopTitle{
+      margin: 0;
+      color: #191b20;
+      font-size: 26px;
+      line-height: 1.2;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+    .announcementContent{
+      max-width: 700px;
+    }
+    .announcementTitle{
+      margin: 0 0 16px;
+      color:#1d1f24;
+      font-size: clamp(34px, 4.2vw, 48px);
+      line-height: 1.1;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .announcementLead{
+      margin: 0 0 28px;
+      color:#73757d;
+      font-size: 16px;
+      line-height: 1.5;
+      max-width: 650px;
+    }
+    .announcementBlock{
+      margin-top: 18px;
+    }
+    .announcementHeading{
+      margin: 0 0 8px;
+      color:#1d1f24;
+      font-size: clamp(26px, 2.7vw, 34px);
+      line-height: 1.14;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .announcementText{
+      margin: 0 0 7px;
+      color:#262931;
+      font-size: 17px;
+      line-height: 1.48;
+      font-weight: 400;
+    }
+    .announcementLink{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 1px 0 7px;
+      color: var(--accent);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      font-size: 17px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .announcementLinkIcon{
+      font-size: 0.84em;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+    .announcementTips{
+      margin: 0;
+      padding-left: 24px;
+    }
+    .announcementTips li{
+      margin: 0 0 10px;
+      color:#262931;
+      font-size: 17px;
+      line-height: 1.48;
+      font-weight: 400;
+    }
+    .announcementGaps{
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .announcementGaps li{
+      margin: 0 0 2px;
+      color:#262931;
+      font-size: 17px;
+      line-height: 1.45;
+      font-weight: 600;
+    }
+    .announcementWhatsApp{
+      display: inline-block;
+      margin-top: 6px;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 18px;
+      line-height: 1.2;
+    }
 
 
 
@@ -1032,10 +1171,21 @@
       .resultsToast{ left: 12px; right: 12px; max-width: none; }
       .resultsToastTitle{ font-size: 16px; }
       .resultsToastText{ font-size: 17px; }
-      .announcementPage{ padding: 28px 22px 24px; }
-      .announcementBack{ font-size: 34px; }
-      .announcementTitle{ font-size: 58px; }
-      .announcementCopy{ font-size: 18px; }
+      .announcementPage{ padding: 22px 20px 38px; }
+      .announcementTop{ margin-bottom: 18px; }
+      .announcementTopTitle{ display: none; }
+      .announcementBack{ font-size: 14px; }
+      .announcementContent{ max-width: none; }
+      .announcementTitle{ font-size: 22px; line-height: 1.23; margin-bottom: 12px; }
+      .announcementLead{ font-size: 16px; line-height: 1.5; margin-bottom: 20px; max-width: none; }
+      .announcementBlock{ margin-top: 15px; }
+      .announcementHeading{ font-size: 18px; line-height: 1.25; margin-bottom: 8px; }
+      .announcementText{ font-size: 16px; line-height: 1.5; margin-bottom: 7px; }
+      .announcementLink{ font-size: 16px; line-height: 1.42; margin-bottom: 9px; }
+      .announcementTips{ padding-left: 20px; }
+      .announcementTips li{ font-size: 16px; line-height: 1.5; margin-bottom: 9px; }
+      .announcementGaps li{ font-size: 16px; line-height: 1.45; }
+      .announcementWhatsApp{ font-size: 18px; line-height: 1.2; }
       .bannerContentWrap {display: flex; flex-direction: column; gap: 4px;}
 
 
@@ -1207,6 +1357,10 @@
                 placeholder="Type a name and click search"
                 autocomplete="off" spellcheck="false" />
 
+              <div class="fieldTooltip" id="qDisabledHintLanding" aria-hidden="true">
+                <span data-i18n="hint_select_district_then_type_name">Please select a district first and then type your name.</span>
+              </div>
+
               <button id="micBtnLanding" class="micBtn" type="button" aria-label="Voice input">
                 <span class="micIcon" aria-hidden="true"></span>
               </button>
@@ -1245,7 +1399,7 @@
           <span class="infoBannerTitle" data-i18n="banner_important">Important note:</span>
           <p class="infoBannerText" data-i18n="banner_text">Each search result shows the page number, serial number, and the PDF file it comes from. Kindly match your details.</p>
         </div>
-        <button class="infoBannerLink" id="landingKnowMoreBtn" type="button" data-i18n="know_more">Know more</button>
+        <button class="infoBannerLink" id="landingKnowMoreBtnMobile" type="button" data-i18n="know_more">Know more</button>
       </div>
     </div>
 
@@ -1301,6 +1455,10 @@
                 data-i18n-placeholder="placeholder_query"
                 placeholder="Type a name and click search"
                 autocomplete="off" spellcheck="false" />
+
+                <div class="fieldTooltip" id="qDisabledHintResults" aria-hidden="true">
+                  <span data-i18n="hint_select_district_then_type_name">Please select a district first and then type your name.</span>
+                </div>
 
                 <button id="micBtnResults" class="micBtn" type="button" aria-label="Voice input">
                 <span class="micIcon" aria-hidden="true"></span>
@@ -1411,9 +1569,62 @@
 
   <section class="announcementPage" id="announcementSection">
     <div class="announcementInner">
-      <button class="announcementBack" id="announcementBackBtn" type="button" data-i18n="go_back">← Go back</button>
-      <h1 class="announcementTitle" data-i18n="announce_title">About the portal, why it exists, and how to use!</h1>
-      <p class="announcementCopy" data-i18n="announce_intro">Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.</p>
+      <div class="announcementTop">
+        <button class="announcementBack" id="announcementBackBtn" type="button">
+          <span class="announcementBackArrow" aria-hidden="true">&#8592;</span>
+          <span data-i18n="go_back">Go back</span>
+        </button>
+        <p class="announcementTopTitle" data-i18n="announce_roll_title">Jharkhand Electoral Roll - 2003</p>
+      </div>
+
+      <div class="announcementContent">
+        <h1 class="announcementTitle" data-i18n="announce_title">About the portal, why it exists, and how to use!</h1>
+        <p class="announcementLead" data-i18n="announce_intro">Use this portal to quickly find your entry in Jharkhand’s 2003 SIR roll. Once you find a likely match, confirm it in the original PDF.</p>
+
+        <section class="announcementBlock">
+          <h2 class="announcementHeading" data-i18n="announce_about_heading">A little bit about this:</h2>
+          <p class="announcementText" data-i18n="announce_about_text">This portal helps you find your name in the 2003 Special Intensive Revision (SIR) electoral roll and spot common issues like age, name spelling, relationship type, and relative’s name mismatches.</p>
+        </section>
+
+        <section class="announcementBlock">
+          <h2 class="announcementHeading" data-i18n="announce_need_heading">Why was this needed?</h2>
+          <p class="announcementText" data-i18n="announce_need_ceo">CEO Jharkhand provides part-wise PDF downloads (no reliable text search in many readers)</p>
+          <a class="announcementLink" href="https://ceojh.jharkhand.gov.in/mrollpdf1/aceng.aspx" target="_blank" rel="noopener noreferrer">
+            <span data-i18n="announce_link_ceo">https://ceojh.jharkhand.gov.in/mrollpdf1/aceng.aspx</span>
+            <span class="announcementLinkIcon" aria-hidden="true">&#8599;</span>
+          </a>
+          <p class="announcementText" data-i18n="announce_need_eci">ECI provides an online Search in SIR tool that handles some misspellings, but not all OCR/typing errors</p>
+          <a class="announcementLink" href="https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QW0DSE" target="_blank" rel="noopener noreferrer">
+            <span data-i18n="announce_link_eci">https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QW0DSE</span>
+            <span class="announcementLinkIcon" aria-hidden="true">&#8599;</span>
+          </a>
+        </section>
+
+        <section class="announcementBlock">
+          <h2 class="announcementHeading" data-i18n="announce_tips_heading">Search tips to make the best use of this:</h2>
+          <ul class="announcementTips">
+            <li data-i18n="announce_tip_1">Search using your relative’s name (as on your voter ID), if your own name doesn’t surface.</li>
+            <li data-i18n="announce_tip_2">If you’re unsure of your 2003 constituency/part, search across the entire district, then drill down to the right AC/part.</li>
+            <li data-i18n="announce_tip_3">Try a roughly similar spelling, then narrow using age range (as in 2003), gender, and relative’s name (even approximate).</li>
+          </ul>
+        </section>
+
+        <section class="announcementBlock">
+          <h2 class="announcementHeading" data-i18n="announce_note_heading">Important note:</h2>
+          <p class="announcementText" data-i18n="announce_note_text">These rolls were digitized using OCR, so the machine-readable text can differ from the scanned PDF. Always match the PDF entry with the search result table before taking action.</p>
+        </section>
+
+        <section class="announcementBlock">
+          <h2 class="announcementHeading" data-i18n="announce_gaps_heading">Known gaps (currently missing in this database)</h2>
+          <ul class="announcementGaps">
+            <li data-i18n="announce_gap_1">AC36: Part 63</li>
+            <li data-i18n="announce_gap_2">AC73: Parts 186-256</li>
+            <li data-i18n="announce_gap_3">AC40: Parts 275, 281</li>
+          </ul>
+          <p class="announcementText" data-i18n="announce_gap_report">There may be other missing ACs/parts. Please report issues on WhatsApp:</p>
+          <a class="announcementWhatsApp" href="https://wa.me/918828290489" target="_blank" rel="noopener noreferrer" data-i18n="announce_whatsapp">8828290489</a>
+        </section>
+      </div>
     </div>
   </section>
 
