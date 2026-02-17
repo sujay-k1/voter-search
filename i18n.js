@@ -147,7 +147,11 @@ export const I18N = {
     announce_gaps_heading: "ज्ञात कमियाँ (जो अभी इस डेटाबेस में नहीं हैं)",
     announce_gap_1: "AC36: भाग 63",
     announce_gap_2: "AC73: भाग 186-256",
-    announce_gap_3: "AC40: भाग 275, 281",
+    announce_gap_3: "AC40: भाग 1-100, 186, 187, 197-200, 275, 281",
+    announce_gap_4: "AC64: भाग 214",
+    announce_gap_5: "AC79: भाग 37",
+    announce_gap_6: "AC60: भाग 28, 162",
+
     announce_gap_report: "कुछ और AC/पार्ट भी छूटे हो सकते हैं। कृपया WhatsApp पर रिपोर्ट करें:",
     announce_whatsapp: "8828290489",
 
@@ -320,7 +324,10 @@ export const I18N = {
     announce_gaps_heading: "Known gaps (jo abhi is database mein missing hain)",
     announce_gap_1: "AC36: Part 63",
     announce_gap_2: "AC73: Parts 186-256",
-    announce_gap_3: "AC40: Parts 275, 281",
+    announce_gap_3: "AC40: Parts 1-100, 186, 187, 197-200, 275, 281",
+    announce_gap_4: "AC64: Part 214",
+    announce_gap_5: "AC79: Part 37",
+    announce_gap_6: "AC60: Parts 28, 162",
     announce_gap_report: "Kuch aur ACs/parts bhi missing ho sakte hain. Kripya WhatsApp par report karein:",
     announce_whatsapp: "8828290489",
 
@@ -490,7 +497,10 @@ export const I18N = {
     announce_gaps_heading: "Known gaps (currently missing in this database)",
     announce_gap_1: "AC36: Part 63",
     announce_gap_2: "AC73: Parts 186-256",
-    announce_gap_3: "AC40: Parts 275, 281",
+    announce_gap_3: "AC40: Parts 1-100, 186, 187, 197-200, 275, 281",
+    announce_gap_4: "AC64: Part 214",
+    announce_gap_5: "AC79: Part 37",
+    announce_gap_6: "AC60: Parts 28, 162",
     announce_gap_report: "There may be other missing ACs/parts. Please report issues on WhatsApp:",
     announce_whatsapp: "8828290489",
 
