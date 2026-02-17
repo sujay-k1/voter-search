@@ -1430,7 +1430,7 @@ function maybeShowResultsToastOnce() {
   // Force layout so browser applies reset immediately
   path.getBoundingClientRect();
 
-  const ms = 3000;
+  const ms = 6000;
   const t0 = performance.now();
 
   const tick = (now) => {

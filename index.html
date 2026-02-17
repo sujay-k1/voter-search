@@ -220,7 +220,8 @@
       color: #1a1a1a;
       min-width: 0;
     }
-    .qInput::placeholder{ color: rgba(0,0,0,.35); }
+    .qInput:enabled::placeholder{ color: rgba(0,0,0,.70); }
+    .qInput:disabled::placeholder{ color: rgba(0,0,0,.35); }
 
     /* leave room for mic button inside the same field area */
     .enhancedInputWrap .qInput{
