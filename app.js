@@ -1895,19 +1895,17 @@ async function preloadDistrictACs(acs, districtLabel) {
       setSearchEnabled(true);
       syncSearchButtonState();
 
-      // After district selection, focus the active query box (same behavior as before).
+      // iOS opens keyboard only when focus runs in the same trusted tap/click stack.
       try {
         const el = getActiveQueryInput();
         if (el && !el.disabled) {
-          setTimeout(() => {
+          try {
+            el.focus({ preventScroll: true });
+          } catch {
             try {
-              el.focus({ preventScroll: true });
-            } catch {
-              try {
-                el.focus();
-              } catch {}
-            }
-          }, 0);
+              el.focus();
+            } catch {}
+          }
         }
       } catch {}
     }
