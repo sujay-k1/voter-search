@@ -1049,6 +1049,18 @@ function applyTranslationsToDOM() {
     el.setAttribute("placeholder", t(k));
   });
 
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const k = el.getAttribute("data-i18n-title");
+    if (!k) return;
+    el.setAttribute("title", t(k));
+  });
+
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((el) => {
+    const k = el.getAttribute("data-i18n-aria-label");
+    if (!k) return;
+    el.setAttribute("aria-label", t(k));
+  });
+
   updateDistrictUI();
   updateSelectedAcText();
   setSortMode(sortMode);
@@ -1222,6 +1234,7 @@ const landingInfoBanner = $("landingInfoBanner");
 const landingInfoBannerDesktop = $("landingInfoBannerDesktop");
 const landingKnowMoreBtn = $("landingKnowMoreBtn");
 const landingKnowMoreBtnMobile = $("landingKnowMoreBtnMobile");
+const landingFaqBtn = $("landingFaqBtn");
 const resultsInfoToast = $("resultsInfoToast");
 const resultsToastRingFg = $("resultsToastRingFg");
 const announcementSection = $("announcementSection");
@@ -1316,22 +1329,37 @@ function showAnnouncementPage() {
   if (announcementSection) announcementSection.style.display = "block";
 }
 
-function maybeShowLandingBanner() {
-  if (!landingInfoBanner) return;
+function hasSeenLandingBanner() {
   let seen = false;
   try {
     seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
   } catch {}
+  return seen;
+}
+
+function syncLandingFaqVisibility(seen = hasSeenLandingBanner()) {
+  if (!landingFaqBtn) return;
+  landingFaqBtn.style.display = seen ? "inline-flex" : "none";
+}
+
+function maybeShowLandingBanner() {
+  const seen = hasSeenLandingBanner();
+  if (!landingInfoBanner) {
+    syncLandingFaqVisibility(seen);
+    return;
+  }
   landingInfoBanner.style.display = seen ? "none" : "";
+  syncLandingFaqVisibility(seen);
 }
 
 function maybeShowLandingBannerDesktop() {
-  if (!landingInfoBannerDesktop) return;
-  let seen = false;
-  try {
-    seen = localStorage.getItem(SEEN_LANDING_BANNER_KEY) === "1";
-  } catch {}
+  const seen = hasSeenLandingBanner();
+  if (!landingInfoBannerDesktop) {
+    syncLandingFaqVisibility(seen);
+    return;
+  }
   landingInfoBannerDesktop.style.display = seen ? "none" : "";
+  syncLandingFaqVisibility(seen);
 }
 
 function hideResultsToast() {
@@ -4107,6 +4135,7 @@ landingKnowMoreBtnMobile?.addEventListener("click", () => {
     localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
   } catch {}
   if (landingInfoBanner) landingInfoBanner.style.display = "none";
+  syncLandingFaqVisibility(true);
   showAnnouncementPage();
 });
 
@@ -4115,6 +4144,14 @@ landingKnowMoreBtn?.addEventListener("click", () => {
     localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
   } catch {}
   if (landingInfoBannerDesktop) landingInfoBannerDesktop.style.display = "none";
+  syncLandingFaqVisibility(true);
+  showAnnouncementPage();
+});
+
+landingFaqBtn?.addEventListener("click", () => {
+  try {
+    localStorage.setItem(SEEN_LANDING_BANNER_KEY, "1");
+  } catch {}
   showAnnouncementPage();
 });
 

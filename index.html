@@ -1141,6 +1141,32 @@
       display: none;
     }
 
+    .landingFaqBtn{
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      border: 2px solid rgba(91,74,163,.55);
+      background: #fff;
+      color: var(--accent);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 800;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0,0,0,.10);
+      z-index: 35;
+      user-select: none;
+    }
+    .landingFaqBtn:focus-visible{
+      outline: 2px solid rgba(91,74,163,.40);
+      outline-offset: 2px;
+    }
+
     @media (max-width: 680px){
       .filtersRow{ flex-direction: column; gap: 12px; position: relative; z-index: 1; overflow: visible; margin: 12px 0px 0;}
       .seg{justify-content: space-evenly;}
@@ -1162,6 +1188,11 @@
       #feedbackLink {display: none;}
       #codeLink {display: none;}
       .infoBannerDesktop{display: none;}
+      .landingFaqBtn{
+        top: auto;
+        right: 38px;
+        bottom: 38px;
+      }
 
       .infoBanner{ padding: 16px; margin: 0px 12px; border-radius: 16px; display: block;}
       .infoBannerHead{flex-direction: column; align-items: flex-start;}
@@ -1321,6 +1352,15 @@
       </div>
     </div>
     </div>
+
+    <button
+      class="landingFaqBtn"
+      id="landingFaqBtn"
+      type="button"
+      aria-label="Open portal information"
+      title="Open portal information"
+      data-i18n-aria-label="faq_open_announcement"
+      data-i18n-title="faq_open_announcement">?</button>
 
     <div class="hero">
       <h1 data-i18n="hero_title">Jharkhand Electoral Roll - 2003</h1>
