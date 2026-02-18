@@ -798,7 +798,7 @@ function attachNameEnhancements({
       secondaryLabel: denied ? t("cancel") : "",
       onSecondary: denied ? () => closeMessagePopup() : null,
       topOffsetVh: 20,
-      modalClass: denied ? "" : "micPermissionGuideSolid",
+      overlayClass: denied ? "" : "micPermissionGuideSolidOverlay",
     });
   }
 
@@ -1388,7 +1388,6 @@ const modalFields = $("modalFields");
 const modalCancel = $("modalCancel");
 const modalDone = $("modalDone");
 const messageModalOverlay = $("messageModalOverlay");
-const messageModalCard = messageModalOverlay?.querySelector?.(".modal") || null;
 const messageModalTitle = $("messageModalTitle");
 const messageModalText = $("messageModalText");
 const messageModalActions = $("messageModalActions");
@@ -1569,8 +1568,8 @@ function runActionSafe(fn) {
 function closeMessagePopup() {
   if (!messageModalOverlay) return;
   messageModalOverlay.classList.remove("hasTopOffset");
+  messageModalOverlay.classList.remove("micPermissionGuideSolidOverlay");
   messageModalOverlay.style.removeProperty("--modal-top-offset");
-  if (messageModalCard) messageModalCard.classList.remove("micPermissionGuideSolid");
   messageModalOverlay.style.display = "none";
   messageModalOverlay.setAttribute("aria-hidden", "true");
   messageModalPrimaryHandler = null;
@@ -1586,7 +1585,7 @@ function openMessagePopup({
   onSecondary = null,
   topOffsetVh = null,
   showPrimary = true,
-  modalClass = "",
+  overlayClass = "",
 } = {}) {
   const text = String(message || "").trim();
   if (!text) return;
@@ -1629,11 +1628,9 @@ function openMessagePopup({
     messageModalOverlay.style.removeProperty("--modal-top-offset");
   }
 
-  if (messageModalCard) {
-    messageModalCard.classList.remove("micPermissionGuideSolid");
-    const cls = String(modalClass || "").trim();
-    if (cls) messageModalCard.classList.add(cls);
-  }
+  messageModalOverlay.classList.remove("micPermissionGuideSolidOverlay");
+  const overlayCls = String(overlayClass || "").trim();
+  if (overlayCls) messageModalOverlay.classList.add(overlayCls);
 
   messageModalOverlay.style.display = "flex";
   messageModalOverlay.setAttribute("aria-hidden", "false");
