@@ -1301,9 +1301,10 @@ let messageModalPrimaryHandler = null;
 let messageModalSecondaryHandler = null;
 
 function setStatus(msg) {
-  if (statusLanding) statusLanding.textContent = msg ?? "";
-  if (statusResults) statusResults.textContent = msg ?? "";
-  syncStatusWrapVisibility();
+  const text = String(msg ?? "").trim();
+  if (!text) return;
+  // Inline status is retired; keep lightweight status feedback via toast.
+  showBottomToast(text, { durationMs: 3000 });
 }
 
 
@@ -1363,9 +1364,8 @@ function setBar(pct) {
 }
 
 function setMeta(msg) {
-  if (metaLanding) metaLanding.textContent = msg ?? "";
-  if (metaResults) metaResults.textContent = msg ?? "";
-  syncStatusWrapVisibility();
+  // Inline meta surface is retired by design.
+  void msg;
 }
 
 function hideBottomToast() {
@@ -1381,10 +1381,7 @@ function showBottomToast(msg, { durationMs = 4000 } = {}) {
   const text = String(msg || "").trim();
   if (!text) return;
 
-  if (!statusToast || !statusToastText) {
-    setStatus(text);
-    return;
-  }
+  if (!statusToast || !statusToastText) return;
 
   if (statusToastTimer) clearTimeout(statusToastTimer);
   statusToastText.textContent = text;
@@ -1473,16 +1470,18 @@ async function retrySearchOrGoLanding() {
   setStatus(t("status_select_district"));
 }
 
-function showRetryOnlyPopup(message) {
+function showRetryOnlyPopup(message, { title = t("banner_important") } = {}) {
   openMessagePopup({
+    title,
     message,
     primaryLabel: t("btn_retry"),
     onPrimary: () => retrySearchOrGoLanding(),
   });
 }
 
-function showOkayRetryPopup(message) {
+function showOkayRetryPopup(message, { title = t("search_results") } = {}) {
   openMessagePopup({
+    title,
     message,
     primaryLabel: t("btn_retry"),
     onPrimary: () => retrySearchOrGoLanding(),
@@ -1492,11 +1491,9 @@ function showOkayRetryPopup(message) {
 }
 
 function syncStatusWrapVisibility() {
-  const hasLandingText = Boolean((statusLanding?.textContent || "").trim() || (metaLanding?.textContent || "").trim());
-  const hasResultsText = Boolean((statusResults?.textContent || "").trim() || (metaResults?.textContent || "").trim());
-
-  if (statusWrapLanding) statusWrapLanding.style.display = hasLandingText && isLandingVisible() ? "block" : "none";
-  if (statusWrapResults) statusWrapResults.style.display = hasResultsText && isResultsVisible() ? "block" : "none";
+  // Inline status/meta containers are intentionally hidden.
+  if (statusWrapLanding) statusWrapLanding.style.display = "none";
+  if (statusWrapResults) statusWrapResults.style.display = "none";
 }
 
 // ===== VIEW SWITCHING =====

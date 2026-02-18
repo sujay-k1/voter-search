@@ -441,6 +441,7 @@
       margin: 16px auto 0;
       padding: 0 18px 0;
       text-align:left;
+      display: none !important;
     }
     #statusWrapResults{
       max-width: var(--maxw);
@@ -1177,6 +1178,12 @@
       font-weight: 650;
       white-space: pre-wrap;
     }
+    #messageModalTitle{
+      font-size: 22px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
     .messageModalActions{
       display:flex;
       align-items:center;
@@ -1215,15 +1222,15 @@
       min-width: 0;
     }
     .statusToastClose{
-      width: 28px;
-      height: 28px;
+      width: 26px;
+      height: 26px;
       border-radius: 999px;
-      border: 1px solid rgba(0,0,0,.20);
-      background: rgba(255,255,255,.72);
-      color: rgba(0,0,0,.62);
+      border: 1px solid rgba(0,0,0,.18);
+      background: rgba(255,255,255,.65);
+      color: rgba(0,0,0,.58);
       font-size: 18px;
       line-height: 1;
-      font-weight: 800;
+      font-weight: 900;
       cursor: pointer;
       display:flex;
       align-items:center;
@@ -1232,7 +1239,7 @@
       padding: 0;
     }
     .statusToastClose:hover{
-      background: rgba(255,255,255,.95);
+      background: rgba(255,255,255,.9);
     }
     .topLayerWrapper{
       display: flex; 
@@ -1883,7 +1890,7 @@
       aria-label="Close message"
       title="Close message"
       data-i18n-aria-label="close_toast"
-      data-i18n-title="close_toast">×</button>
+      data-i18n-title="close_toast">&times;</button>
   </div>
 
   <script type="importmap">
