@@ -756,22 +756,13 @@ function attachNameEnhancements({
   }
 
   function showMicPermissionPopup(state) {
+    const denied = state === "denied";
     openMessagePopup({
       title: t("mic_permission_title"),
       message: micPermissionMessageForState(state),
-      primaryLabel: t("btn_allow_mic"),
-      onPrimary: async () => {
-        const granted = await requestMicPermissionOnce();
-        if (granted) {
-          closeMessagePopup();
-          startListening();
-          return;
-        }
-        const nextState = await getMicPermissionState();
-        showMicPermissionPopup(nextState);
-      },
-      secondaryLabel: t("cancel"),
-      onSecondary: () => closeMessagePopup(),
+      showPrimary: false,
+      secondaryLabel: denied ? t("cancel") : "",
+      onSecondary: denied ? () => closeMessagePopup() : null,
       topOffsetVh: 20,
     });
   }
@@ -1535,6 +1526,7 @@ function openMessagePopup({
   secondaryLabel = "",
   onSecondary = null,
   topOffsetVh = null,
+  showPrimary = true,
 } = {}) {
   const text = String(message || "").trim();
   if (!text) return;
@@ -1548,8 +1540,12 @@ function openMessagePopup({
 
   if (messageModalTitle) messageModalTitle.textContent = String(title || "").trim();
   messageModalText.textContent = text;
-  messageModalPrimaryBtn.textContent = String(primaryLabel || t("btn_retry"));
-  messageModalPrimaryHandler = typeof onPrimary === "function" ? onPrimary : () => closeMessagePopup();
+  const hasPrimary = Boolean(showPrimary && String(primaryLabel || "").trim());
+  if (messageModalPrimaryBtn) {
+    messageModalPrimaryBtn.style.display = hasPrimary ? "inline-flex" : "none";
+    if (hasPrimary) messageModalPrimaryBtn.textContent = String(primaryLabel || t("btn_retry"));
+  }
+  messageModalPrimaryHandler = hasPrimary && typeof onPrimary === "function" ? onPrimary : () => closeMessagePopup();
 
   const hasSecondary = Boolean(String(secondaryLabel || "").trim() && typeof onSecondary === "function");
   if (messageModalSecondaryBtn) {
@@ -1558,7 +1554,10 @@ function openMessagePopup({
       messageModalSecondaryBtn.textContent = String(secondaryLabel);
     }
   }
-  if (messageModalActions) messageModalActions.classList.toggle("dual", hasSecondary);
+  if (messageModalActions) {
+    messageModalActions.style.display = hasPrimary || hasSecondary ? "flex" : "none";
+    messageModalActions.classList.toggle("dual", hasPrimary && hasSecondary);
+  }
   messageModalSecondaryHandler = hasSecondary ? onSecondary : null;
 
   const topOffset = Number(topOffsetVh);

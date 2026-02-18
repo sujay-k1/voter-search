@@ -51,7 +51,6 @@ export const I18N = {
     done: "ठीक है",
     btn_okay: "ठीक है",
     btn_retry: "फिर से कोशिश करें",
-    btn_allow_mic: "अनुमति दें",
     close_toast: "संदेश बंद करें",
     and: "और",
 
@@ -248,7 +247,6 @@ export const I18N = {
     done: "Done",
     btn_okay: "Okay",
     btn_retry: "Retry",
-    btn_allow_mic: "Allow",
     close_toast: "Message band karein",
     and: "AND",
 
@@ -438,7 +436,6 @@ export const I18N = {
     done: "Done",
     btn_okay: "Okay",
     btn_retry: "Retry",
-    btn_allow_mic: "Allow",
     close_toast: "Close message",
     and: "AND",
 
