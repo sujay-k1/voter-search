@@ -272,17 +272,6 @@
       -webkit-tap-highlight-color: transparent;
       transition: transform .06s ease, opacity .12s ease, background .12s ease, border-color .12s ease;
     }
-    .micBtn::before{
-      content:"";
-      position:absolute;
-      inset: -1px;
-      border-radius: inherit;
-      border: 1px solid rgba(196, 44, 44, .92);
-      transform-origin: left center;
-      transform: scaleX(0);
-      opacity: 0;
-      pointer-events:none;
-    }
     .micBtn:active{ transform: translateY(-50%) translateY(1px); }
     .micBtn:disabled{
       opacity: .45;
@@ -297,6 +286,7 @@
       border: 2px solid rgba(0,0,0,.55);
       position: relative;
       top: -4px;
+      z-index: 2;
       transition:
         width .18s ease,
         height .18s ease,
@@ -355,16 +345,35 @@
         background-color .18s ease;
     }
 
-    /* Listening state: morph mic to stop icon + timed red border drain */
+    .micProgressRing{
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .micProgressRingCircle{
+      fill: none;
+      stroke: rgba(196, 44, 44, .95);
+      stroke-width: 2.1;
+      stroke-linecap: round;
+      stroke-dasharray: 126;
+      stroke-dashoffset: 0;
+      opacity: 0;
+    }
+
+    /* Listening state: morph mic to stop icon + red ring unfill animation */
     .micBtn.listening{
       border-color: rgba(0,0,0,.22);
-      background: rgba(255,255,255,.55);
-      box-shadow: none;
-      animation: none;
+      background: rgba(255, 210, 225, .65);
+      box-shadow: 0 8px 24px rgba(180, 50, 95, .18);
+      animation: micPulse 1.25s ease-in-out infinite;
     }
-    .micBtn.listening::before{
+    .micBtn.listening .micProgressRingCircle{
       opacity: 1;
-      animation: micBorderDrain 4s linear forwards;
+      animation: micRingDrain 4s linear forwards;
     }
     .micBtn.listening .micIcon{
       top: 0;
@@ -385,9 +394,14 @@
       opacity: 0;
       transform: translateX(-50%) scale(.2);
     }
-    @keyframes micBorderDrain{
-      0% { transform: scaleX(1); }
-      100% { transform: scaleX(0); }
+    @keyframes micPulse{
+      0% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
+      50% { box-shadow: 0 10px 30px rgba(180, 50, 95, .24); }
+      100% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
+    }
+    @keyframes micRingDrain{
+      0% { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: 126; }
     }
 
     .listeningChip{

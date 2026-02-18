@@ -705,6 +705,27 @@ function attachNameEnhancements({
   });
   syncDisabled();
 
+  // Add an SVG ring used for the red-to-grey unfill border animation while recording.
+  (function ensureMicProgressRing() {
+    if (micBtnEl.querySelector(".micProgressRing")) return;
+    try {
+      const svgNS = "http://www.w3.org/2000/svg";
+      const ring = document.createElementNS(svgNS, "svg");
+      ring.setAttribute("class", "micProgressRing");
+      ring.setAttribute("viewBox", "0 0 44 44");
+      ring.setAttribute("aria-hidden", "true");
+
+      const circle = document.createElementNS(svgNS, "circle");
+      circle.setAttribute("class", "micProgressRingCircle");
+      circle.setAttribute("cx", "22");
+      circle.setAttribute("cy", "22");
+      circle.setAttribute("r", "20.05");
+
+      ring.appendChild(circle);
+      micBtnEl.insertBefore(ring, micBtnEl.firstChild || null);
+    } catch {}
+  })();
+
   // iOS hint controls
   function showIOSSafariHint() {
     if (iosHintEl) {
