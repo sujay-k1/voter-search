@@ -798,6 +798,7 @@ function attachNameEnhancements({
       secondaryLabel: denied ? t("cancel") : "",
       onSecondary: denied ? () => closeMessagePopup() : null,
       topOffsetVh: 20,
+      modalClass: denied ? "" : "micPermissionGuideSolid",
     });
   }
 
@@ -1387,6 +1388,7 @@ const modalFields = $("modalFields");
 const modalCancel = $("modalCancel");
 const modalDone = $("modalDone");
 const messageModalOverlay = $("messageModalOverlay");
+const messageModalCard = messageModalOverlay?.querySelector?.(".modal") || null;
 const messageModalTitle = $("messageModalTitle");
 const messageModalText = $("messageModalText");
 const messageModalActions = $("messageModalActions");
@@ -1568,6 +1570,7 @@ function closeMessagePopup() {
   if (!messageModalOverlay) return;
   messageModalOverlay.classList.remove("hasTopOffset");
   messageModalOverlay.style.removeProperty("--modal-top-offset");
+  if (messageModalCard) messageModalCard.classList.remove("micPermissionGuideSolid");
   messageModalOverlay.style.display = "none";
   messageModalOverlay.setAttribute("aria-hidden", "true");
   messageModalPrimaryHandler = null;
@@ -1583,6 +1586,7 @@ function openMessagePopup({
   onSecondary = null,
   topOffsetVh = null,
   showPrimary = true,
+  modalClass = "",
 } = {}) {
   const text = String(message || "").trim();
   if (!text) return;
@@ -1623,6 +1627,12 @@ function openMessagePopup({
   } else {
     messageModalOverlay.classList.remove("hasTopOffset");
     messageModalOverlay.style.removeProperty("--modal-top-offset");
+  }
+
+  if (messageModalCard) {
+    messageModalCard.classList.remove("micPermissionGuideSolid");
+    const cls = String(modalClass || "").trim();
+    if (cls) messageModalCard.classList.add(cls);
   }
 
   messageModalOverlay.style.display = "flex";
