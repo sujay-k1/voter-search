@@ -442,7 +442,12 @@
       padding: 0 18px 0;
       text-align:left;
     }
-    #statusWrapResults{ display: none; }
+    #statusWrapResults{
+      max-width: var(--maxw);
+      margin: 10px 4% 0;
+      padding: 0;
+      display: none;
+    }
     .statusLine{
       color: #4a4a4a;
       font-size: 13px;
@@ -1237,6 +1242,12 @@
         height: 108px;
         min-width: 120px;
       }
+      .searchRowWrap{
+        max-width: 980px;
+        width: 100%;
+        margin: 22px auto 0;
+        padding: 0;
+      }
       .resultsActionStack .clearSearchBtnTop{ display: block; }
       .resultsActionStack #searchBtnResults{ min-width: 120px; }
       .resultsBody{z-index: 40; height: calc(100dvh - 333px); padding: 12px 12px 0px; margin: 0px 0px 0;}
@@ -1343,7 +1354,7 @@
     @media (max-width: 900px){
       .searchRow{ flex-direction:column; gap: 14px; }
       .searchPill{ min-width: 0; width: 100%; flex-direction: column; height: 112px; border-radius: 32px 32px 28px 28px; gap: 6px;}
-      .btnPrimary{height: 64px; font-size: 20px; min-width: none;}
+      .btnPrimary{height: 64px; font-size: 20px; min-width: none; width: -webkit-fill-available;}
       .underRow{ flex-direction:column; align-items:center; text-align:center; }
       .tip{ max-width: 520px; }
       .resultsTopInner{ flex-direction:column; align-items:stretch; }
@@ -1530,6 +1541,11 @@
             Tip: You can type your name or your relative’s name (Father, husband, mother)
           </div>
         </div>
+
+        <div class="statusWrap" id="statusWrapLanding" aria-live="polite">
+          <div class="statusLine" id="statusLanding"></div>
+          <div class="metaLine" id="metaLanding"></div>
+        </div>
       </div>
     </div>
 
@@ -1654,6 +1670,11 @@
           </button>
           <div class="popover" style="min-width: 180px;" id="sortPopover" aria-hidden="true"></div>
         </div>
+      </div>
+
+      <div class="statusWrap" id="statusWrapResults" aria-live="polite">
+        <div class="statusLine" id="statusResults"></div>
+        <div class="metaLine" id="metaResults"></div>
       </div>
     </div>
 

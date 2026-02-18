@@ -19,7 +19,7 @@ export const I18N = {
     hero_title: "2003 SIR की झारखंड मतदाता सूची",
     hero_subtitle: "झारखंड की 2003 SIR सूची में अपना नाम खोजें",
     select_district: "ज़िला चुनें",
-    placeholder_query: "बोल कर टाइप करने के लिए माइक बटन दबायें",
+    placeholder_query: "बोल कर टाइप करने के लिए माइक दबायें →",
     btn_search: "खोजें",
     include_typing: "परिणाम में टाइपिंग की गलतियाँ भी शामिल करें",
     tip_text: "टिप: अपना नाम या रिश्तेदार का नाम (पिता, पति, माता) लिखें",
@@ -104,6 +104,10 @@ export const I18N = {
     status_select_district: "शुरू करने के लिए ज़िला चुनें।",
     status_enter_query: "नाम लिखें।",
     status_select_district_first: "पहले ज़िला चुनें।",
+    status_mic_not_supported: "इस ब्राउज़र में माइक्रोफोन इनपुट उपलब्ध नहीं है। कृपया टाइप करें।",
+    status_search_queued: "पिछली खोज चल रही है, नई खोज उसके बाद चलेगी…",
+    status_error_retry: "कुछ गड़बड़ हुई। कृपया दोबारा खोजें।",
+    status_worker_timeout: "खोज में अपेक्षा से अधिक समय लग रहा है। कृपया फिर से प्रयास करें।",
     hint_select_district_then_type_name: "कृपया पहले ज़िला चुनें, फिर अपना नाम लिखें।",
     status_no_acs_selected: "कोई निर्वाचित क्षेत्र चयनित नहीं है।",
     status_cleared: "क्लियर हो गया।",
@@ -171,6 +175,8 @@ export const I18N = {
     status_age_sort_ready: "उम्र के क्रम से सूची तैयार • {done}/{total}",
 
     status_loading_page_rows: "पेज {page} रो लोड हो रहे हैं… (AC {ac} • {i}/{n})",
+    status_page_rows_partial: "कुछ पंक्तियाँ लोड नहीं हो सकीं ({n} निर्वाचन क्षेत्र: {acs})।",
+    status_partial_results_acs: "आंशिक परिणाम: {n} निर्वाचन क्षेत्रों में समस्या हुई ({acs})। कृपया दोबारा खोजें।",
     status_showing_range: "{from}-{to} / {total} दिख रहे हैं",
 
     toggle_include_typing_refresh: "टाइपिंग-गलतियाँ अब {state} • रीफ्रेश…",
@@ -283,6 +289,10 @@ export const I18N = {
     status_select_district: "Start karne ke liye district select karein.",
     status_enter_query: "Query enter karein.",
     status_select_district_first: "Pehle district select karein.",
+    status_mic_not_supported: "Is browser mein microphone input available nahi hai. Kripya type karein.",
+    status_search_queued: "Pehli search chal rahi hai, nayi search uske baad chalegi…",
+    status_error_retry: "Kuch galat hua. Kripya dobara search karein.",
+    status_worker_timeout: "Search expected se zyada time le rahi hai. Kripya phir se try karein.",
     hint_select_district_then_type_name: "Please pehle district select karein, phir apna naam type karein.",
     status_no_acs_selected: "Koi AC selected nahi hai.",
     status_cleared: "Cleared.",
@@ -349,6 +359,8 @@ export const I18N = {
     status_age_sort_ready: "Age sort ready • {done}/{total}",
 
     status_loading_page_rows: "Page {page} rows load ho rahe hain… (AC {ac} • {i}/{n})",
+    status_page_rows_partial: "Kuch rows load nahi ho paayi ({n} AC: {acs}).",
+    status_partial_results_acs: "Partial results: {n} ACs mein issue tha ({acs}). Kripya dobara search karein.",
     status_showing_range: "Showing {from}-{to} of {total}",
 
     toggle_include_typing_refresh: "Typing mistakes ab {state} • refreshing…",
@@ -459,6 +471,10 @@ export const I18N = {
     status_select_district: "Select District to start.",
     status_enter_query: "Enter a query.",
     status_select_district_first: "Select a district first.",
+    status_mic_not_supported: "Microphone input is not available in this browser. Please type instead.",
+    status_search_queued: "A search is already running. Your latest search will run next…",
+    status_error_retry: "Something went wrong. Please retry your search.",
+    status_worker_timeout: "Search is taking longer than expected. Please try again.",
     hint_select_district_then_type_name: "Please select a district first and then type your name.",
     status_no_acs_selected: "No ACs selected.",
     status_cleared: "Cleared.",
@@ -524,6 +540,8 @@ export const I18N = {
     status_age_sort_ready: "Age sort ready • {done}/{total}",
 
     status_loading_page_rows: "Loading page {page} rows… (AC {ac} • {i}/{n})",
+    status_page_rows_partial: "Some rows failed to load ({n} ACs: {acs}).",
+    status_partial_results_acs: "Partial results: {n} ACs failed ({acs}). Please retry search.",
     status_showing_range: "Showing {from}-{to} of {total}",
 
     toggle_include_typing_refresh: "Include typing mistakes is now {state} • refreshing…",

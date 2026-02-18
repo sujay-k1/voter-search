@@ -84,6 +84,30 @@ const PHONETIC = [
   ["र", "ड़"],
   ["ग्गा", "गा"],
   ["त्त", "त"],
+  ["कई", "कै", "कय"],
+  ["खई", "खै", "खय"],
+  ["गई", "गै", "गय"],
+  ["घई", "घै", "घय"],
+  ["चई", "चै", "चय"],
+  ["छई", "छै", "छय"],
+  ["जई", "जै", "जय"],
+  ["झई", "झै", "झय"],
+  ["टई", "टै", "टय"],
+  ["डई", "डै", "डय"],
+  ["दई", "डै", "दय"],
+  ["धई", "घै", "धय"],
+  ["नई", "नै", "नय"],
+  ["पई", "पै", "पय"],
+  ["फई", "फै", "फय"],
+  ["बई", "बै", "बय"],
+  ["भई", "भै", "भय"],
+  ["मई", "मै", "मय"],
+  ["रई", "रै", "रय"],
+  ["लई", "लै", "लय"],
+  ["वई", "वै", "वय"],
+  ["सई", "सै", "सय"],
+  ["शई", "शै", "शय"],
+  ["षई", "षै", "षय"],
 ];
 
 /* =====================
@@ -845,67 +869,80 @@ function resetState() {
 resetState();
 
 self.onmessage = (ev) => {
-  const msg = ev.data || {};
-  const type = msg.type;
+  try {
+    const msg = ev.data || {};
+    const type = msg.type;
 
-  if (type === "start") {
-    resetState();
-    STATE.query = normName(msg.query || "");
-    STATE.exactOn = !!msg.exactOn;
-    STATE.scope = msg.scope || "voter";
-    STATE.total = msg.total || 0;
-    STATE.done = 0;
+    if (type === "start") {
+      resetState();
+      STATE.query = normName(msg.query || "");
+      STATE.exactOn = !!msg.exactOn;
+      STATE.scope = msg.scope || "voter";
+      STATE.total = msg.total || 0;
+      STATE.done = 0;
 
-    const qWords = splitWords(STATE.query).map(parseWord);
-    STATE.queryWords = qWords;
+      const qWords = splitWords(STATE.query).map(parseWord);
+      STATE.queryWords = qWords;
 
-    return;
-  }
-
-  if (type === "batch") {
-    const rows = msg.rows || [];
-    for (const row of rows) {
-      const voter = row.voter_name_norm || row["Voter Name"] || "";
-      const rel = row.relative_name_norm || row["Relative Name"] || "";
-
-      let best = null;
-      let bestField = null;
-
-      if (STATE.scope === "voter" || STATE.scope === "anywhere") {
-        const m = scoreCandidateName(STATE.queryWords, voter, STATE.exactOn);
-        if (m) { best = m; bestField = "voter"; }
-      }
-      if (STATE.scope === "relative" || STATE.scope === "anywhere") {
-        const m = scoreCandidateName(STATE.queryWords, rel, STATE.exactOn);
-        if (m && (!best || compareRankKey(m.key, best.key) < 0)) { best = m; bestField = "relative"; }
-      }
-
-      if (best) {
-        STATE.hits.push({
-          row_id: row.row_id,
-          key: best.key,
-          explain: best.explain,
-          match_field: bestField,
-        });
-      }
+      return;
     }
 
-    STATE.done += rows.length;
-    // progress ping (cheap)
-    if (STATE.total) {
-      self.postMessage({ type: "progress", done: STATE.done, total: STATE.total, phase: "scoring" });
+    if (type === "batch") {
+      const rows = msg.rows || [];
+      for (const row of rows) {
+        const voter = row.voter_name_norm || row["Voter Name"] || "";
+        const rel = row.relative_name_norm || row["Relative Name"] || "";
+
+        let best = null;
+        let bestField = null;
+
+        if (STATE.scope === "voter" || STATE.scope === "anywhere") {
+          const m = scoreCandidateName(STATE.queryWords, voter, STATE.exactOn);
+          if (m) {
+            best = m;
+            bestField = "voter";
+          }
+        }
+        if (STATE.scope === "relative" || STATE.scope === "anywhere") {
+          const m = scoreCandidateName(STATE.queryWords, rel, STATE.exactOn);
+          if (m && (!best || compareRankKey(m.key, best.key) < 0)) {
+            best = m;
+            bestField = "relative";
+          }
+        }
+
+        if (best) {
+          STATE.hits.push({
+            row_id: row.row_id,
+            key: best.key,
+            explain: best.explain,
+            match_field: bestField,
+          });
+        }
+      }
+
+      STATE.done += rows.length;
+      // progress ping (cheap)
+      if (STATE.total) {
+        self.postMessage({ type: "progress", done: STATE.done, total: STATE.total, phase: "scoring" });
+      }
+      return;
     }
-    return;
-  }
 
-  if (type === "finish") {
-    // sort by lexicographic rankKey
-    STATE.hits.sort((a, b) => compareRankKey(a.key, b.key));
+    if (type === "finish") {
+      // sort by lexicographic rankKey
+      STATE.hits.sort((a, b) => compareRankKey(a.key, b.key));
 
-    self.postMessage({
-      type: "done",
-      ranked: STATE.hits,
-    });
-    return;
+      self.postMessage({
+        type: "done",
+        ranked: STATE.hits,
+      });
+      return;
+    }
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err || "Worker error");
+    try {
+      self.postMessage({ type: "error", message });
+    } catch {}
   }
 };
