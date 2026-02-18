@@ -452,6 +452,7 @@ const TRANSLIT = {
   num: 5,
   debounceMs: 120,
 };
+const MIC_AUTO_STOP_MS = 4000;
 
 function isDevanagariChar(ch) {
   if (!ch) return false;
@@ -649,6 +650,7 @@ function attachNameEnhancements({
   let lastPreview = "";
   let lastCommittedFinal = "";
   let suppressSuggestDuringSpeech = false;
+  let micAutoStopTimer = null;
 
   function now() {
     return Date.now();
@@ -666,6 +668,10 @@ function attachNameEnhancements({
     isListening = !!on;
     micBtnEl.classList.toggle("listening", !!on);
     wrapEl.classList.toggle("isListening", !!on);
+    if (!on && micAutoStopTimer) {
+      clearTimeout(micAutoStopTimer);
+      micAutoStopTimer = null;
+    }
   }
 
   function closeAll() {
@@ -676,6 +682,10 @@ function attachNameEnhancements({
     const disabled = getDisabledState ? !!getDisabledState() : !!inputEl.disabled;
     micBtnEl.disabled = disabled;
     if (disabled) {
+      if (micAutoStopTimer) {
+        clearTimeout(micAutoStopTimer);
+        micAutoStopTimer = null;
+      }
       // stop listening if any
       if (recognizer && isListening) {
         try {
@@ -710,6 +720,82 @@ function attachNameEnhancements({
   }
   if (iosHintCloseEl && iosHintEl) {
     iosHintCloseEl.onclick = () => hideIOSSafariHint();
+  }
+
+  async function getMicPermissionState() {
+    try {
+      const perms = navigator?.permissions;
+      if (!perms || typeof perms.query !== "function") return "unknown";
+      const p = await perms.query({ name: "microphone" });
+      const state = String(p?.state || "").toLowerCase();
+      if (state === "granted" || state === "prompt" || state === "denied") return state;
+      return "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  async function requestMicPermissionOnce() {
+    try {
+      if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+        return true;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      try {
+        for (const tr of stream.getTracks?.() || []) tr.stop?.();
+      } catch {}
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function micPermissionMessageForState(state) {
+    if (state === "denied") return t("mic_permission_denied");
+    return t("mic_permission_prompt");
+  }
+
+  function showMicPermissionPopup(state) {
+    openMessagePopup({
+      title: t("mic_permission_title"),
+      message: micPermissionMessageForState(state),
+      primaryLabel: t("btn_allow_mic"),
+      onPrimary: async () => {
+        const granted = await requestMicPermissionOnce();
+        if (granted) {
+          closeMessagePopup();
+          startListening();
+          return;
+        }
+        const nextState = await getMicPermissionState();
+        showMicPermissionPopup(nextState);
+      },
+      secondaryLabel: t("cancel"),
+      onSecondary: () => closeMessagePopup(),
+      topOffsetVh: 20,
+    });
+  }
+
+  async function ensureMicPermissionBeforeListening() {
+    if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+      return true;
+    }
+
+    const state = await getMicPermissionState();
+    if (state === "granted") return true;
+
+    // Show guidance immediately, then try requesting permission.
+    showMicPermissionPopup(state);
+
+    const granted = await requestMicPermissionOnce();
+    if (granted) {
+      closeMessagePopup();
+      return true;
+    }
+
+    const nextState = await getMicPermissionState();
+    showMicPermissionPopup(nextState);
+    return false;
   }
 
   // Mode determination based on last typed char (as per spec)
@@ -909,7 +995,18 @@ function attachNameEnhancements({
     return r;
   }
 
+  function scheduleMicAutoStop() {
+    if (micAutoStopTimer) clearTimeout(micAutoStopTimer);
+    micAutoStopTimer = setTimeout(() => {
+      if (isListening) stopListening();
+    }, MIC_AUTO_STOP_MS);
+  }
+
   function stopListening() {
+    if (micAutoStopTimer) {
+      clearTimeout(micAutoStopTimer);
+      micAutoStopTimer = null;
+    }
     if (!recognizer) return;
     try {
       recognizer.stop();
@@ -927,7 +1024,11 @@ function attachNameEnhancements({
     closeAll();
     try {
       recognizer.start();
-    } catch {}
+      scheduleMicAutoStop();
+    } catch {
+      setListeningUI(false);
+      suppressSuggestDuringSpeech = false;
+    }
   }
 
   function handleSpeechFinal(text) {
@@ -979,7 +1080,7 @@ function attachNameEnhancements({
     })();
   }
 
-  micBtnEl.addEventListener("click", () => {
+  micBtnEl.addEventListener("click", async () => {
     syncDisabled();
     if (micBtnEl.disabled) return;
 
@@ -1056,11 +1157,22 @@ function attachNameEnhancements({
       stopListening();
       return;
     }
+
+    const hasPermission = await ensureMicPermissionBeforeListening();
+    if (!hasPermission) return;
+
     startListening();
   });
 
   return {
-    close: () => closeAll(),
+    close: () => {
+      if (isListening) stopListening();
+      if (micAutoStopTimer) {
+        clearTimeout(micAutoStopTimer);
+        micAutoStopTimer = null;
+      }
+      closeAll();
+    },
     closePopover: () => closeTranslitPopover(popEl),
     syncDisabled,
     getPopover: () => popEl,
@@ -1407,6 +1519,8 @@ function runActionSafe(fn) {
 
 function closeMessagePopup() {
   if (!messageModalOverlay) return;
+  messageModalOverlay.classList.remove("hasTopOffset");
+  messageModalOverlay.style.removeProperty("--modal-top-offset");
   messageModalOverlay.style.display = "none";
   messageModalOverlay.setAttribute("aria-hidden", "true");
   messageModalPrimaryHandler = null;
@@ -1420,6 +1534,7 @@ function openMessagePopup({
   onPrimary = null,
   secondaryLabel = "",
   onSecondary = null,
+  topOffsetVh = null,
 } = {}) {
   const text = String(message || "").trim();
   if (!text) return;
@@ -1445,6 +1560,15 @@ function openMessagePopup({
   }
   if (messageModalActions) messageModalActions.classList.toggle("dual", hasSecondary);
   messageModalSecondaryHandler = hasSecondary ? onSecondary : null;
+
+  const topOffset = Number(topOffsetVh);
+  if (Number.isFinite(topOffset) && topOffset > 0) {
+    messageModalOverlay.classList.add("hasTopOffset");
+    messageModalOverlay.style.setProperty("--modal-top-offset", `${topOffset}vh`);
+  } else {
+    messageModalOverlay.classList.remove("hasTopOffset");
+    messageModalOverlay.style.removeProperty("--modal-top-offset");
+  }
 
   messageModalOverlay.style.display = "flex";
   messageModalOverlay.setAttribute("aria-hidden", "false");

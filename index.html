@@ -267,9 +267,21 @@
       display:flex;
       align-items:center;
       justify-content:center;
+      overflow: hidden;
       user-select:none;
       -webkit-tap-highlight-color: transparent;
       transition: transform .06s ease, opacity .12s ease, background .12s ease, border-color .12s ease;
+    }
+    .micBtn::before{
+      content:"";
+      position:absolute;
+      inset: -1px;
+      border-radius: inherit;
+      border: 1px solid rgba(196, 44, 44, .92);
+      transform-origin: left center;
+      transform: scaleX(0);
+      opacity: 0;
+      pointer-events:none;
     }
     .micBtn:active{ transform: translateY(-50%) translateY(1px); }
     .micBtn:disabled{
@@ -285,6 +297,15 @@
       border: 2px solid rgba(0,0,0,.55);
       position: relative;
       top: -4px;
+      transition:
+        width .18s ease,
+        height .18s ease,
+        top .18s ease,
+        border-radius .18s ease,
+        border-color .18s ease,
+        border-width .18s ease,
+        background-color .18s ease,
+        transform .18s ease;
     }
     .micIcon::after{
       content:"";
@@ -298,6 +319,16 @@
       border-top: 0;
       border-radius: 0 0 10px 10px;
       opacity: .95;
+      transition:
+        width .18s ease,
+        height .18s ease,
+        bottom .18s ease,
+        border-width .18s ease,
+        border-color .18s ease,
+        border-radius .18s ease,
+        opacity .16s ease,
+        transform .16s ease,
+        background-color .18s ease;
     }
 
     .micIcon::before{
@@ -312,25 +343,51 @@
       border-top: 0;
       border-radius: 0 0 10px 10px;
       opacity: 1;
+      transition:
+        width .18s ease,
+        height .18s ease,
+        bottom .18s ease,
+        border-width .18s ease,
+        border-color .18s ease,
+        border-radius .18s ease,
+        opacity .16s ease,
+        transform .16s ease,
+        background-color .18s ease;
     }
 
-    /* Listening state: prominent but still on-brand */
+    /* Listening state: morph mic to stop icon + timed red border drain */
     .micBtn.listening{
-      border-color: rgba(180, 50, 95, .55);
-      background: rgba(255, 210, 225, .65);
-      box-shadow: 0 8px 24px rgba(180, 50, 95, .18);
+      border-color: rgba(0,0,0,.22);
+      background: rgba(255,255,255,.55);
+      box-shadow: none;
+      animation: none;
     }
-    .micBtn.listening .micIcon,
-    .micBtn.listening .micIcon::after{
-      border-color: rgba(120, 20, 60, .70);
+    .micBtn.listening::before{
+      opacity: 1;
+      animation: micBorderDrain 4s linear forwards;
     }
-    .micBtn.listening{
-      animation: micPulse 1.25s ease-in-out infinite;
+    .micBtn.listening .micIcon{
+      top: 0;
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      border: 0;
+      background: rgba(196, 44, 44, .95);
     }
-    @keyframes micPulse{
-      0% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
-      50% { box-shadow: 0 10px 30px rgba(180, 50, 95, .24); }
-      100% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
+    .micBtn.listening .micIcon::after,
+    .micBtn.listening .micIcon::before{
+      width: 4px;
+      height: 4px;
+      bottom: 5px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(196, 44, 44, .95);
+      opacity: 0;
+      transform: translateX(-50%) scale(.2);
+    }
+    @keyframes micBorderDrain{
+      0% { transform: scaleX(1); }
+      100% { transform: scaleX(0); }
     }
 
     .listeningChip{
@@ -1080,6 +1137,10 @@
       justify-content:center;
       z-index: 200;
       padding: 18px;
+    }
+    .modalOverlay.hasTopOffset{
+      align-items: flex-start;
+      padding-top: var(--modal-top-offset, 20vh);
     }
     .modal{
       width: min(560px, 92vw);
