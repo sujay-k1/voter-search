@@ -797,7 +797,7 @@ function attachNameEnhancements({
       showPrimary: false,
       secondaryLabel: denied ? t("cancel") : "",
       onSecondary: denied ? () => closeMessagePopup() : null,
-      topOffsetVh: 20,
+      topOffsetVh: 15,
       overlayClass: denied ? "" : "micPermissionGuideSolidOverlay",
     });
   }
