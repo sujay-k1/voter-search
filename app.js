@@ -217,6 +217,8 @@ let relativeCandidatesCache = new Map(); // Map(cacheKey -> Set(row_id))
 
 // Used to cancel an in-flight search when user starts a new one.
 let activeSearchToken = 0;
+let runSearchInFlight = false;
+let runSearchAgainRequested = false;
 
 // Gender domain discovery per loaded AC (used only when filtering within that AC)
 let genderBuckets = { male: new Set(), female: new Set(), other: new Set() };
@@ -450,6 +452,7 @@ const TRANSLIT = {
   num: 5,
   debounceMs: 120,
 };
+const MIC_AUTO_STOP_MS = 4000;
 
 function isDevanagariChar(ch) {
   if (!ch) return false;
@@ -647,6 +650,8 @@ function attachNameEnhancements({
   let lastPreview = "";
   let lastCommittedFinal = "";
   let suppressSuggestDuringSpeech = false;
+  let micAutoStopTimer = null;
+  let micPermissionDeniedSticky = false;
 
   function now() {
     return Date.now();
@@ -664,6 +669,10 @@ function attachNameEnhancements({
     isListening = !!on;
     micBtnEl.classList.toggle("listening", !!on);
     wrapEl.classList.toggle("isListening", !!on);
+    if (!on && micAutoStopTimer) {
+      clearTimeout(micAutoStopTimer);
+      micAutoStopTimer = null;
+    }
   }
 
   function closeAll() {
@@ -674,6 +683,10 @@ function attachNameEnhancements({
     const disabled = getDisabledState ? !!getDisabledState() : !!inputEl.disabled;
     micBtnEl.disabled = disabled;
     if (disabled) {
+      if (micAutoStopTimer) {
+        clearTimeout(micAutoStopTimer);
+        micAutoStopTimer = null;
+      }
       // stop listening if any
       if (recognizer && isListening) {
         try {
@@ -693,17 +706,144 @@ function attachNameEnhancements({
   });
   syncDisabled();
 
+  // Add an SVG ring used for the red-to-grey unfill border animation while recording.
+  (function ensureMicProgressRing() {
+    if (micBtnEl.querySelector(".micProgressRing")) return;
+    try {
+      const svgNS = "http://www.w3.org/2000/svg";
+      const ring = document.createElementNS(svgNS, "svg");
+      ring.setAttribute("class", "micProgressRing");
+      ring.setAttribute("viewBox", "0 0 44 44");
+      ring.setAttribute("aria-hidden", "true");
+
+      const circle = document.createElementNS(svgNS, "circle");
+      circle.setAttribute("class", "micProgressRingCircle");
+      circle.setAttribute("cx", "22");
+      circle.setAttribute("cy", "22");
+      circle.setAttribute("r", "20.05");
+
+      ring.appendChild(circle);
+      micBtnEl.insertBefore(ring, micBtnEl.firstChild || null);
+    } catch {}
+  })();
+
   // iOS hint controls
   function showIOSSafariHint() {
-    if (!iosHintEl) return;
-    iosHintEl.classList.add("show");
+    if (iosHintEl) {
+      iosHintEl.classList.remove("show");
+      iosHintEl.setAttribute("aria-hidden", "true");
+    }
+    showBottomToast(t("ios_keyboard_mic_hint"));
   }
   function hideIOSSafariHint() {
     if (!iosHintEl) return;
     iosHintEl.classList.remove("show");
+    iosHintEl.setAttribute("aria-hidden", "true");
   }
   if (iosHintCloseEl && iosHintEl) {
     iosHintCloseEl.onclick = () => hideIOSSafariHint();
+  }
+
+  async function getMicPermissionState() {
+    try {
+      const perms = navigator?.permissions;
+      if (!perms || typeof perms.query !== "function") return "unknown";
+      const p = await perms.query({ name: "microphone" });
+      const state = String(p?.state || "").toLowerCase();
+      if (state === "granted" || state === "prompt" || state === "denied") return state;
+      return "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  function isPermissionDeniedError(err) {
+    const name = String(err?.name || "").toLowerCase();
+    const msg = String(err?.message || "").toLowerCase();
+    return (
+      name.includes("notallowed") ||
+      name.includes("permissiondenied") ||
+      name.includes("security") ||
+      msg.includes("permission") ||
+      msg.includes("denied") ||
+      msg.includes("not allowed")
+    );
+  }
+
+  async function requestMicPermissionOnce() {
+    try {
+      if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+        return { granted: true, denied: false };
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      try {
+        for (const tr of stream.getTracks?.() || []) tr.stop?.();
+      } catch {}
+      return { granted: true, denied: false };
+    } catch (e) {
+      return { granted: false, denied: isPermissionDeniedError(e) };
+    }
+  }
+
+  function micPermissionMessageForState(state) {
+    if (state === "denied") return t("mic_permission_denied");
+    return t("mic_permission_prompt");
+  }
+
+  function showMicPermissionPopup({ denied = false } = {}) {
+    openMessagePopup({
+      title: t("mic_permission_title"),
+      message: denied ? t("mic_permission_denied") : t("mic_permission_prompt"),
+      showPrimary: false,
+      secondaryLabel: denied ? t("cancel") : "",
+      onSecondary: denied ? () => closeMessagePopup() : null,
+      topOffsetVh: 20,
+      overlayClass: denied ? "" : "micPermissionGuideSolidOverlay",
+    });
+  }
+
+  async function ensureMicPermissionBeforeListening() {
+    if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+      return true;
+    }
+
+    if (micPermissionDeniedSticky) {
+      showMicPermissionPopup({ denied: true });
+      return false;
+    }
+
+    const state = await getMicPermissionState();
+    if (state === "granted") {
+      micPermissionDeniedSticky = false;
+      return true;
+    }
+    if (state === "denied") {
+      micPermissionDeniedSticky = true;
+      showMicPermissionPopup({ denied: true });
+      return false;
+    }
+
+    // Show guidance immediately, then try requesting permission.
+    showMicPermissionPopup({ denied: false });
+
+    const perm = await requestMicPermissionOnce();
+    if (perm.granted) {
+      micPermissionDeniedSticky = false;
+      closeMessagePopup();
+      return true;
+    }
+
+    if (perm.denied) {
+      micPermissionDeniedSticky = true;
+      showMicPermissionPopup({ denied: true });
+      return false;
+    }
+
+    const nextState = await getMicPermissionState();
+    const deniedNow = nextState === "denied";
+    micPermissionDeniedSticky = deniedNow;
+    showMicPermissionPopup({ denied: deniedNow });
+    return false;
   }
 
   // Mode determination based on last typed char (as per spec)
@@ -903,7 +1043,18 @@ function attachNameEnhancements({
     return r;
   }
 
+  function scheduleMicAutoStop() {
+    if (micAutoStopTimer) clearTimeout(micAutoStopTimer);
+    micAutoStopTimer = setTimeout(() => {
+      if (isListening) stopListening();
+    }, MIC_AUTO_STOP_MS);
+  }
+
   function stopListening() {
+    if (micAutoStopTimer) {
+      clearTimeout(micAutoStopTimer);
+      micAutoStopTimer = null;
+    }
     if (!recognizer) return;
     try {
       recognizer.stop();
@@ -921,7 +1072,11 @@ function attachNameEnhancements({
     closeAll();
     try {
       recognizer.start();
-    } catch {}
+      scheduleMicAutoStop();
+    } catch {
+      setListeningUI(false);
+      suppressSuggestDuringSpeech = false;
+    }
   }
 
   function handleSpeechFinal(text) {
@@ -973,7 +1128,7 @@ function attachNameEnhancements({
     })();
   }
 
-  micBtnEl.addEventListener("click", () => {
+  micBtnEl.addEventListener("click", async () => {
     syncDisabled();
     if (micBtnEl.disabled) return;
 
@@ -987,7 +1142,10 @@ function attachNameEnhancements({
 
     if (!recognizer) {
       recognizer = initRecognizerIfPossible();
-      if (!recognizer) return;
+      if (!recognizer) {
+        showBottomToast(t("status_mic_not_supported"));
+        return;
+      }
 
       recognizer.onresult = (ev) => {
         try {
@@ -1047,12 +1205,23 @@ function attachNameEnhancements({
       stopListening();
       return;
     }
+
+    const hasPermission = await ensureMicPermissionBeforeListening();
+    if (!hasPermission) return;
+
     startListening();
   });
 
   return {
-    close: () => closeAll(),
-    closePopover: () => closeTranslitPopover(),
+    close: () => {
+      if (isListening) stopListening();
+      if (micAutoStopTimer) {
+        clearTimeout(micAutoStopTimer);
+        micAutoStopTimer = null;
+      }
+      closeAll();
+    },
+    closePopover: () => closeTranslitPopover(popEl),
     syncDisabled,
     getPopover: () => popEl,
     getWrap: () => wrapEl,
@@ -1218,6 +1387,15 @@ const modalSubtitle = $("modalSubtitle");
 const modalFields = $("modalFields");
 const modalCancel = $("modalCancel");
 const modalDone = $("modalDone");
+const messageModalOverlay = $("messageModalOverlay");
+const messageModalTitle = $("messageModalTitle");
+const messageModalText = $("messageModalText");
+const messageModalActions = $("messageModalActions");
+const messageModalSecondaryBtn = $("messageModalSecondaryBtn");
+const messageModalPrimaryBtn = $("messageModalPrimaryBtn");
+const statusToast = $("statusToast");
+const statusToastText = $("statusToastText");
+const statusToastCloseBtn = $("statusToastCloseBtn");
 
 // Sort popover
 const sortBtn = $("sortBtn");
@@ -1250,6 +1428,8 @@ const statusLanding = $("statusLanding");
 const metaLanding = $("metaLanding");
 const statusResults = $("statusResults");
 const metaResults = $("metaResults");
+const statusWrapLanding = $("statusWrapLanding");
+const statusWrapResults = $("statusWrapResults");
 const progressOverlayResults = $("progressOverlayResults");
 const progressPanelResults = $("progressPanelResults");
 const progressRingResults = $("progressRingResults");
@@ -1276,10 +1456,15 @@ const SEEN_RESULTS_BANNER_KEY = "sir_seen_results_banner_v1";
 
 let resultsToastTimer = null;
 let resultsToastRaf = null;
+let statusToastTimer = null;
+let messageModalPrimaryHandler = null;
+let messageModalSecondaryHandler = null;
 
 function setStatus(msg) {
-  if (statusLanding) statusLanding.textContent = msg ?? "";
-  if (statusResults) statusResults.textContent = msg ?? "";
+  const text = String(msg ?? "").trim();
+  if (!text) return;
+  // Inline status is retired; keep lightweight status feedback via toast.
+  showBottomToast(text, { durationMs: 3000 });
 }
 
 
@@ -1297,6 +1482,13 @@ function hideLoader() {
   setProgressStage("");
   setProgressSub("");
   setBar(0);
+}
+
+function cancelInFlightSearch() {
+  // Invalidate ongoing async search pipelines so stale completions are ignored.
+  activeSearchToken++;
+  runSearchAgainRequested = false;
+  hideLoader();
 }
 
 function showLoader(stageMsg = "") {
@@ -1332,8 +1524,162 @@ function setBar(pct) {
 }
 
 function setMeta(msg) {
-  if (metaLanding) metaLanding.textContent = msg ?? "";
-  if (metaResults) metaResults.textContent = msg ?? "";
+  // Inline meta surface is retired by design.
+  void msg;
+}
+
+function hideBottomToast() {
+  if (!statusToast) return;
+  if (statusToastTimer) clearTimeout(statusToastTimer);
+  statusToastTimer = null;
+  statusToast.classList.remove("show");
+  statusToast.setAttribute("aria-hidden", "true");
+  if (statusToastText) statusToastText.textContent = "";
+}
+
+function showBottomToast(msg, { durationMs = 4000 } = {}) {
+  const text = String(msg || "").trim();
+  if (!text) return;
+
+  if (!statusToast || !statusToastText) return;
+
+  if (statusToastTimer) clearTimeout(statusToastTimer);
+  statusToastText.textContent = text;
+  statusToast.classList.add("show");
+  statusToast.setAttribute("aria-hidden", "false");
+
+  statusToastTimer = setTimeout(() => {
+    hideBottomToast();
+  }, Math.max(0, Number(durationMs) || 4000));
+}
+
+function runActionSafe(fn) {
+  if (typeof fn !== "function") return;
+  try {
+    const out = fn();
+    if (out && typeof out.then === "function") {
+      out.catch((e) => console.error(e));
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function closeMessagePopup() {
+  if (!messageModalOverlay) return;
+  messageModalOverlay.classList.remove("hasTopOffset");
+  messageModalOverlay.classList.remove("micPermissionGuideSolidOverlay");
+  messageModalOverlay.style.removeProperty("--modal-top-offset");
+  messageModalOverlay.style.display = "none";
+  messageModalOverlay.setAttribute("aria-hidden", "true");
+  messageModalPrimaryHandler = null;
+  messageModalSecondaryHandler = null;
+}
+
+function openMessagePopup({
+  title = t("banner_important"),
+  message = "",
+  primaryLabel = t("btn_retry"),
+  onPrimary = null,
+  secondaryLabel = "",
+  onSecondary = null,
+  topOffsetVh = null,
+  showPrimary = true,
+  overlayClass = "",
+} = {}) {
+  const text = String(message || "").trim();
+  if (!text) return;
+
+  if (!messageModalOverlay || !messageModalText || !messageModalPrimaryBtn) {
+    setStatus(text);
+    return;
+  }
+
+  hideBottomToast();
+
+  if (messageModalTitle) messageModalTitle.textContent = String(title || "").trim();
+  messageModalText.textContent = text;
+  const hasPrimary = Boolean(showPrimary && String(primaryLabel || "").trim());
+  if (messageModalPrimaryBtn) {
+    messageModalPrimaryBtn.style.display = hasPrimary ? "inline-flex" : "none";
+    if (hasPrimary) messageModalPrimaryBtn.textContent = String(primaryLabel || t("btn_retry"));
+  }
+  messageModalPrimaryHandler = hasPrimary && typeof onPrimary === "function" ? onPrimary : () => closeMessagePopup();
+
+  const hasSecondary = Boolean(String(secondaryLabel || "").trim() && typeof onSecondary === "function");
+  if (messageModalSecondaryBtn) {
+    messageModalSecondaryBtn.style.display = hasSecondary ? "inline-flex" : "none";
+    if (hasSecondary) {
+      messageModalSecondaryBtn.textContent = String(secondaryLabel);
+    }
+  }
+  if (messageModalActions) {
+    messageModalActions.style.display = hasPrimary || hasSecondary ? "flex" : "none";
+    messageModalActions.classList.toggle("dual", hasPrimary && hasSecondary);
+  }
+  messageModalSecondaryHandler = hasSecondary ? onSecondary : null;
+
+  const topOffset = Number(topOffsetVh);
+  if (Number.isFinite(topOffset) && topOffset > 0) {
+    messageModalOverlay.classList.add("hasTopOffset");
+    messageModalOverlay.style.setProperty("--modal-top-offset", `${topOffset}vh`);
+  } else {
+    messageModalOverlay.classList.remove("hasTopOffset");
+    messageModalOverlay.style.removeProperty("--modal-top-offset");
+  }
+
+  messageModalOverlay.classList.remove("micPermissionGuideSolidOverlay");
+  const overlayCls = String(overlayClass || "").trim();
+  if (overlayCls) messageModalOverlay.classList.add(overlayCls);
+
+  messageModalOverlay.style.display = "flex";
+  messageModalOverlay.setAttribute("aria-hidden", "false");
+}
+
+function hasAnyQueryText() {
+  const qActive = String(getActiveQueryInput()?.value || "").trim();
+  if (qActive) return true;
+  const qL = String(qLanding?.value || "").trim();
+  if (qL) return true;
+  const qR = String(qResults?.value || "").trim();
+  return Boolean(qR);
+}
+
+async function retrySearchOrGoLanding() {
+  closeMessagePopup();
+  if (hasAnyQueryText()) {
+    await runSearch();
+    return;
+  }
+  hideLoader();
+  showLanding();
+  setStatus(t("status_select_district"));
+}
+
+function showRetryOnlyPopup(message, { title = t("banner_important") } = {}) {
+  openMessagePopup({
+    title,
+    message,
+    primaryLabel: t("btn_retry"),
+    onPrimary: () => retrySearchOrGoLanding(),
+  });
+}
+
+function showOkayRetryPopup(message, { title = t("search_results") } = {}) {
+  openMessagePopup({
+    title,
+    message,
+    primaryLabel: t("btn_retry"),
+    onPrimary: () => retrySearchOrGoLanding(),
+    secondaryLabel: t("btn_okay"),
+    onSecondary: () => closeMessagePopup(),
+  });
+}
+
+function syncStatusWrapVisibility() {
+  // Inline status/meta containers are intentionally hidden.
+  if (statusWrapLanding) statusWrapLanding.style.display = "none";
+  if (statusWrapResults) statusWrapResults.style.display = "none";
 }
 
 // ===== VIEW SWITCHING =====
@@ -1345,6 +1691,7 @@ function showLanding() {
   if (announcementSection) announcementSection.style.display = "none";
   // Ensure results UI is restored when user returns.
   resetMobileTableCompactUI();
+  syncStatusWrapVisibility();
 }
 
 function showResults() {
@@ -1357,6 +1704,7 @@ function showResults() {
     setMobileTableCompact(tableRegion.scrollTop > 8);
     syncStickyColScrollShadow();
   }
+  syncStatusWrapVisibility();
 }
 
 function showAnnouncementPage() {
@@ -1364,6 +1712,7 @@ function showAnnouncementPage() {
   landingSection.style.display = "none";
   resultsSection.style.display = "none";
   if (announcementSection) announcementSection.style.display = "block";
+  syncStatusWrapVisibility();
 }
 
 function hasSeenLandingBanner() {
@@ -2341,6 +2690,8 @@ function setDistrictById(id) {
   const d = (districtManifest?.districts || []).find((x) => x.id === id);
   if (!d) return;
 
+  cancelInFlightSearch();
+
   currentDistrictId = d.id;
   currentDistrictLabel = getDistrictLabelForLang(d, getActiveLang());
   districtACsAll = d.acs.slice().map(Number).filter(Number.isFinite);
@@ -2559,6 +2910,41 @@ let worker;
 let pendingResolve = null;
 let pendingReject = null;
 let pendingProgress = null;
+let pendingWorkerTimer = null;
+const WORKER_RANK_TIMEOUT_MS = 90000;
+
+function clearWorkerPendingTimer() {
+  if (!pendingWorkerTimer) return;
+  clearTimeout(pendingWorkerTimer);
+  pendingWorkerTimer = null;
+}
+
+function settleWorkerRequest({ value = null, error = null } = {}) {
+  clearWorkerPendingTimer();
+  const resolve = pendingResolve;
+  const reject = pendingReject;
+  pendingResolve = null;
+  pendingReject = null;
+  pendingProgress = null;
+  if (error) {
+    if (reject) reject(error);
+    return;
+  }
+  if (resolve) resolve(value);
+}
+
+function resetWorkerAfterFailure() {
+  try {
+    worker?.terminate?.();
+  } catch {}
+  worker = null;
+}
+
+function makeUiError(code, message) {
+  const err = new Error(String(message || code || "Error"));
+  err.code = String(code || "APP_ERROR");
+  return err;
+}
 
 function initWorker() {
   if (worker) return;
@@ -2584,28 +2970,28 @@ function initWorker() {
         explain: x.explain ?? "",
         match_field: x.match_field ?? "",
       }));
-
-      if (pendingResolve) {
-        const r = pendingResolve;
-        pendingResolve = null;
-        pendingReject = null;
-        pendingProgress = null;
-        r(ranked);
-      }
+      settleWorkerRequest({ value: ranked });
       return;
     }
 
     if (msg.type === "error") {
-      setStatus(`Worker error: ${msg.message}`);
-      if (pendingReject) {
-        const rej = pendingReject;
-        pendingResolve = null;
-        pendingReject = null;
-        pendingProgress = null;
-        rej(new Error(msg.message));
-      }
+      const message = String(msg.message || "Worker error");
+      resetWorkerAfterFailure();
+      settleWorkerRequest({ error: makeUiError("WORKER_ERROR", message) });
       return;
     }
+  };
+
+  worker.onerror = (ev) => {
+    const message = String(ev?.message || "Worker crashed");
+    resetWorkerAfterFailure();
+    settleWorkerRequest({ error: makeUiError("WORKER_ERROR", message) });
+  };
+
+  worker.onmessageerror = () => {
+    const message = "Worker message decode failed";
+    resetWorkerAfterFailure();
+    settleWorkerRequest({ error: makeUiError("WORKER_ERROR", message) });
   };
 }
 
@@ -2615,20 +3001,32 @@ function runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker, onProg
     pendingResolve = resolve;
     pendingReject = reject;
     pendingProgress = typeof onProgress === "function" ? onProgress : null;
+    clearWorkerPendingTimer();
+    pendingWorkerTimer = setTimeout(() => {
+      const err = makeUiError("WORKER_TIMEOUT", "Worker ranking timed out");
+      resetWorkerAfterFailure();
+      settleWorkerRequest({ error: err });
+    }, WORKER_RANK_TIMEOUT_MS);
 
-    worker.postMessage({
-      type: "start",
-      query: qStrict,
-      scope: scopeForWorker,
-      exactOn,
-      total: rowsWithMeta.length,
-    });
+    try {
+      worker.postMessage({
+        type: "start",
+        query: qStrict,
+        scope: scopeForWorker,
+        exactOn,
+        total: rowsWithMeta.length,
+      });
 
-    for (let i = 0; i < rowsWithMeta.length; i += SCORE_BATCH) {
-      const batch = rowsWithMeta.slice(i, i + SCORE_BATCH);
-      worker.postMessage({ type: "batch", rows: batch });
+      for (let i = 0; i < rowsWithMeta.length; i += SCORE_BATCH) {
+        const batch = rowsWithMeta.slice(i, i + SCORE_BATCH);
+        worker.postMessage({ type: "batch", rows: batch });
+      }
+      worker.postMessage({ type: "finish" });
+    } catch (e) {
+      resetWorkerAfterFailure();
+      settleWorkerRequest({ error: e instanceof Error ? e : new Error(String(e || "Worker post failed")) });
+      return;
     }
-    worker.postMessage({ type: "finish" });
   });
 }
 
@@ -3017,7 +3415,8 @@ async function applyFiltersThenSortThenRender() {
 // ---------- Search ----------
 async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken) {
   const merged = [];
-  if (!acList || !acList.length) return merged;
+  const failedAcs = [];
+  if (!acList || !acList.length) return { merged, failedAcs };
 
   const totalAcs = acList.length;
 
@@ -3027,7 +3426,7 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
 
   const prepareAc = async (ac) => {
     setProgressStage(exactOn ? t("status_stage1_exact", { ac }) : t("status_stage1_loose", { ac }));
-    const { candidates } = await getCandidatesForQueryForAc(ac, qStrict, searchScope, exactOn);
+    const { candidates } = await getCandidatesForQueryForAc(ac, qStrict, scopeForWorker, exactOn);
     if (!candidates.length) return { ac, rows: [], candidates: 0 };
 
     setProgressStage(t("status_stage2", { n: candidates.length, ac }));
@@ -3087,6 +3486,7 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
     const settled = ready.shift();
 
     if (!settled || !settled.ok) {
+      if (Number.isFinite(Number(settled?.ac))) failedAcs.push(Number(settled.ac));
       processed++;
       setBar((processed / totalAcs) * 100);
       setProgressStage(t("status_stage0", { ac: settled?.ac ?? "?", i: processed, n: totalAcs }));
@@ -3121,10 +3521,10 @@ async function computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myT
     setBar((processed / totalAcs) * 100);
     setProgressStage(t("status_stage0", { ac, i: processed, n: totalAcs }));
   }
-  return merged;
+  return { merged, failedAcs };
 }
 
-async function runSearch() {
+async function runSearchCore() {
   const q = getActiveQueryInput().value || "";
   const qStrict = norm(q);
 
@@ -3149,12 +3549,14 @@ async function runSearch() {
   setProgressSub("");
 
   if (!qStrict) {
+    hideLoader();
     setStatus(t("status_enter_query"));
     syncSearchButtonState();
     return;
   }
 
   if (!districtACsAll.length) {
+    hideLoader();
     setStatus(t("status_select_district_first"));
     return;
   }
@@ -3166,6 +3568,7 @@ async function runSearch() {
 
   const acList = getActiveACs();
   if (!acList.length) {
+    hideLoader();
     setStatus(t("status_no_acs_selected"));
     return;
   }
@@ -3182,16 +3585,18 @@ async function runSearch() {
   masterRankedAll = [];
   lastSearchCtx = { districtSlug, query: qStrict, scope: scopeForWorker, exactOn, searchedACs: new Set() };
 
-  let merged;
+  let mergedResult;
   try {
-    merged = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
+    mergedResult = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
   } finally {
     setBar(100);
     setResultsProgressVisible(false);
     setProgressStage("");
     setProgressSub("");
   }
-  if (merged === null) return;
+  if (mergedResult === null) return;
+  const merged = mergedResult?.merged || [];
+  const failedAcs = Array.isArray(mergedResult?.failedAcs) ? mergedResult.failedAcs : [];
 
   // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
   masterRankedAll = merged.sort(cmpRelevance);
@@ -3201,12 +3606,50 @@ async function runSearch() {
 
   await applyFiltersThenSortThenRender();
   setStatus(t("status_ready_results", { n: rankedView.length }));
+  if (failedAcs.length) {
+    setMeta("");
+    showOkayRetryPopup(
+      t("status_partial_results_acs", {
+        n: failedAcs.length,
+        acs: failedAcs.join(", "),
+      })
+    );
+  } else {
+    setMeta("");
+  }
 
   if (DEBUG && rankedView.length) {
     console.log("DEBUG top 20:");
     for (const x of rankedView.slice(0, 20)) {
       console.log(x.key, x.sortKey, x.explain);
     }
+  }
+}
+
+async function runSearch() {
+  if (runSearchInFlight) {
+    runSearchAgainRequested = true;
+    showBottomToast(t("status_search_queued"));
+    return;
+  }
+
+  runSearchInFlight = true;
+  try {
+    do {
+      runSearchAgainRequested = false;
+      await runSearchCore();
+    } while (runSearchAgainRequested);
+  } catch (e) {
+    console.error("runSearch failed:", e);
+    hideLoader();
+    setMeta("");
+    if (String(e?.code || "") === "WORKER_TIMEOUT") {
+      showRetryOnlyPopup(t("status_worker_timeout"));
+    } else {
+      showRetryOnlyPopup(t("status_error_retry"));
+    }
+  } finally {
+    runSearchInFlight = false;
   }
 }
 
@@ -3232,14 +3675,31 @@ async function renderPage() {
     const entries = Array.from(missingByAc.entries());
     const totalAcs = entries.length;
     let done = 0;
+    const failedAcs = [];
 
     await runPool(entries, MAX_DISPLAY_IN_FLIGHT_AC, async ([ac, rowIds]) => {
-      setStatus(t("status_loading_page_rows", { page, ac, i: done + 1, n: totalAcs }));
-      await fetchDisplayRowsByIdsForAc(ac, rowIds);
-      done++;
-      setStatus(t("status_loading_page_rows", { page, ac, i: done, n: totalAcs }));
+      try {
+        setStatus(t("status_loading_page_rows", { page, ac, i: done + 1, n: totalAcs }));
+        await fetchDisplayRowsByIdsForAc(ac, rowIds);
+      } catch (e) {
+        console.warn("Failed loading display rows for AC", ac, e);
+        failedAcs.push(ac);
+      } finally {
+        done++;
+        setStatus(t("status_loading_page_rows", { page, ac, i: done, n: totalAcs }));
+      }
       return true;
     });
+
+    if (failedAcs.length) {
+      setMeta("");
+      showOkayRetryPopup(
+        t("status_page_rows_partial", {
+          n: failedAcs.length,
+          acs: failedAcs.join(", "),
+        })
+      );
+    }
   }
 
   const infoMap = new Map(slice.map((x) => [x.key, x]));
@@ -3355,6 +3815,8 @@ function wireIMEEnter(inputEl, onEnter) {
 
 // ---------- Clear ----------
 function clearAll() {
+  cancelInFlightSearch();
+
   qLanding.value = "";
   qResults.value = "";
   current.lastQuery = "";
@@ -3389,68 +3851,92 @@ function refreshOnStateChange(reason) {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(async () => {
     refreshTimer = null;
-
-    // AC selection changes should NOT rerun the whole search if we already have results
-    // for the same (district, query, scope, exactOn). We just filter/expand incrementally.
-    if (reason === "acs") {
-      const qStrict = current.lastQuery || lastSearchCtx?.query || norm(getActiveQueryInput().value || "");
-      const districtSlug = slugifyDistrictId(currentDistrictId || "");
-      const exactOn = exactOnFromIncludeTyping();
-      const scopeForWorker = searchScope;
-
-      // Fast path: reuse already-ranked rows and only expand for newly-selected ACs.
-      if (
-        qStrict &&
-        lastSearchCtx &&
-        masterRankedAll &&
-        masterRankedAll.length &&
-        districtSlug === lastSearchCtx.districtSlug &&
-        qStrict === lastSearchCtx.query &&
-        scopeForWorker === lastSearchCtx.scope &&
-        exactOn === lastSearchCtx.exactOn
-      ) {
-        const targetAcs = getActiveACs();
-        const searched = lastSearchCtx.searchedACs || new Set();
-        const missing = targetAcs.filter((ac) => !searched.has(ac));
-
-        // If we need to expand to new ACs, do it incrementally (no rework for already-scored ACs)
-        if (missing.length) {
-          showResults();
-          const myToken = ++activeSearchToken;
-
-          setBar(0);
-          setStatus(t("status_stage0", { ac: missing[0] || 0, i: 1, n: missing.length }));
-
-          const merged = await computeMergedForAcs(missing, qStrict, exactOn, scopeForWorker, myToken);
-          if (merged !== null && merged.length) {
-            masterRankedAll = masterRankedAll.concat(merged).sort(cmpRelevance);
-            for (const ac of missing) searched.add(ac);
-            lastSearchCtx.searchedACs = searched;
-          }
-        }
-
-        // Now just filter the already-ranked master list by selected ACs.
-        const targetSet = new Set(getActiveACs());
-        rankedByRelevance = masterRankedAll.filter((x) => targetSet.has(x.ac));
-
-        await applyFiltersThenSortThenRender();
-        setStatus(t("status_ready_results", { n: rankedView.length }));
-        return;
-      }
-
-      // Safe fallback: force a rerun for the current displayed query.
-      if (qStrict) {
-        current.lastQuery = qStrict;
-        qLanding.value = qStrict;
-        qResults.value = qStrict;
-        await runSearch();
-      }
+    if (runSearchInFlight) {
+      runSearchAgainRequested = true;
+      showBottomToast(t("status_search_queued"));
       return;
     }
 
-    // Default behavior for query/scope/exact changes: rerun
-    if (current.lastQuery) {
-      await runSearch();
+    try {
+      // AC selection changes should NOT rerun the whole search if we already have results
+      // for the same (district, query, scope, exactOn). We just filter/expand incrementally.
+      if (reason === "acs") {
+        const qStrict = current.lastQuery || lastSearchCtx?.query || norm(getActiveQueryInput().value || "");
+        const districtSlug = slugifyDistrictId(currentDistrictId || "");
+        const exactOn = exactOnFromIncludeTyping();
+        const scopeForWorker = searchScope;
+
+        // Fast path: reuse already-ranked rows and only expand for newly-selected ACs.
+        if (
+          qStrict &&
+          lastSearchCtx &&
+          masterRankedAll &&
+          masterRankedAll.length &&
+          districtSlug === lastSearchCtx.districtSlug &&
+          qStrict === lastSearchCtx.query &&
+          scopeForWorker === lastSearchCtx.scope &&
+          exactOn === lastSearchCtx.exactOn
+        ) {
+          const targetAcs = getActiveACs();
+          const searched = lastSearchCtx.searchedACs || new Set();
+          const missing = targetAcs.filter((ac) => !searched.has(ac));
+
+          // If we need to expand to new ACs, do it incrementally (no rework for already-scored ACs)
+          if (missing.length) {
+            showResults();
+            const myToken = ++activeSearchToken;
+
+            setBar(0);
+            setStatus(t("status_stage0", { ac: missing[0] || 0, i: 1, n: missing.length }));
+
+            const extra = await computeMergedForAcs(missing, qStrict, exactOn, scopeForWorker, myToken);
+            if (extra !== null && extra.merged.length) {
+              masterRankedAll = masterRankedAll.concat(extra.merged).sort(cmpRelevance);
+              for (const ac of missing) searched.add(ac);
+              lastSearchCtx.searchedACs = searched;
+            }
+            if (extra?.failedAcs?.length) {
+              setMeta("");
+              showOkayRetryPopup(
+                t("status_partial_results_acs", {
+                  n: extra.failedAcs.length,
+                  acs: extra.failedAcs.join(", "),
+                })
+              );
+            }
+          }
+
+          // Now just filter the already-ranked master list by selected ACs.
+          const targetSet = new Set(getActiveACs());
+          rankedByRelevance = masterRankedAll.filter((x) => targetSet.has(x.ac));
+
+          await applyFiltersThenSortThenRender();
+          setStatus(t("status_ready_results", { n: rankedView.length }));
+          return;
+        }
+
+        // Safe fallback: force a rerun for the current displayed query.
+        if (qStrict) {
+          current.lastQuery = qStrict;
+          qLanding.value = qStrict;
+          qResults.value = qStrict;
+          await runSearch();
+        }
+        return;
+      }
+
+      // Default behavior for query/scope/exact changes: rerun
+      if (current.lastQuery) {
+        await runSearch();
+      }
+    } catch (e) {
+      console.error("refreshOnStateChange failed:", e);
+      setMeta("");
+      if (String(e?.code || "") === "WORKER_TIMEOUT") {
+        showRetryOnlyPopup(t("status_worker_timeout"));
+      } else {
+        showRetryOnlyPopup(t("status_error_retry"));
+      }
     }
   }, 250);
 }
@@ -3815,6 +4301,32 @@ modalDone.onclick = () => {
     console.error(e);
   }
 };
+
+if (statusToastCloseBtn) {
+  statusToastCloseBtn.addEventListener("click", () => hideBottomToast());
+}
+
+if (messageModalPrimaryBtn) {
+  messageModalPrimaryBtn.addEventListener("click", () => {
+    const fn = messageModalPrimaryHandler || (() => closeMessagePopup());
+    runActionSafe(fn);
+  });
+}
+
+if (messageModalSecondaryBtn) {
+  messageModalSecondaryBtn.addEventListener("click", () => {
+    const fn = messageModalSecondaryHandler || (() => closeMessagePopup());
+    runActionSafe(fn);
+  });
+}
+
+if (messageModalOverlay) {
+  messageModalOverlay.addEventListener("click", (e) => {
+    if (e.target !== messageModalOverlay) return;
+    const fn = messageModalSecondaryHandler || (() => closeMessagePopup());
+    runActionSafe(fn);
+  });
+}
 
 function openRelativeNameModal() {
   openModal({
