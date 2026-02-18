@@ -651,6 +651,7 @@ function attachNameEnhancements({
   let lastCommittedFinal = "";
   let suppressSuggestDuringSpeech = false;
   let micAutoStopTimer = null;
+  let micPermissionDeniedSticky = false;
 
   function now() {
     return Date.now();
@@ -756,18 +757,31 @@ function attachNameEnhancements({
     }
   }
 
+  function isPermissionDeniedError(err) {
+    const name = String(err?.name || "").toLowerCase();
+    const msg = String(err?.message || "").toLowerCase();
+    return (
+      name.includes("notallowed") ||
+      name.includes("permissiondenied") ||
+      name.includes("security") ||
+      msg.includes("permission") ||
+      msg.includes("denied") ||
+      msg.includes("not allowed")
+    );
+  }
+
   async function requestMicPermissionOnce() {
     try {
       if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
-        return true;
+        return { granted: true, denied: false };
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       try {
         for (const tr of stream.getTracks?.() || []) tr.stop?.();
       } catch {}
-      return true;
-    } catch {
-      return false;
+      return { granted: true, denied: false };
+    } catch (e) {
+      return { granted: false, denied: isPermissionDeniedError(e) };
     }
   }
 
@@ -776,11 +790,10 @@ function attachNameEnhancements({
     return t("mic_permission_prompt");
   }
 
-  function showMicPermissionPopup(state) {
-    const denied = state === "denied";
+  function showMicPermissionPopup({ denied = false } = {}) {
     openMessagePopup({
       title: t("mic_permission_title"),
-      message: micPermissionMessageForState(state),
+      message: denied ? t("mic_permission_denied") : t("mic_permission_prompt"),
       showPrimary: false,
       secondaryLabel: denied ? t("cancel") : "",
       onSecondary: denied ? () => closeMessagePopup() : null,
@@ -793,20 +806,42 @@ function attachNameEnhancements({
       return true;
     }
 
+    if (micPermissionDeniedSticky) {
+      showMicPermissionPopup({ denied: true });
+      return false;
+    }
+
     const state = await getMicPermissionState();
-    if (state === "granted") return true;
+    if (state === "granted") {
+      micPermissionDeniedSticky = false;
+      return true;
+    }
+    if (state === "denied") {
+      micPermissionDeniedSticky = true;
+      showMicPermissionPopup({ denied: true });
+      return false;
+    }
 
     // Show guidance immediately, then try requesting permission.
-    showMicPermissionPopup(state);
+    showMicPermissionPopup({ denied: false });
 
-    const granted = await requestMicPermissionOnce();
-    if (granted) {
+    const perm = await requestMicPermissionOnce();
+    if (perm.granted) {
+      micPermissionDeniedSticky = false;
       closeMessagePopup();
       return true;
     }
 
+    if (perm.denied) {
+      micPermissionDeniedSticky = true;
+      showMicPermissionPopup({ denied: true });
+      return false;
+    }
+
     const nextState = await getMicPermissionState();
-    showMicPermissionPopup(nextState);
+    const deniedNow = nextState === "denied";
+    micPermissionDeniedSticky = deniedNow;
+    showMicPermissionPopup({ denied: deniedNow });
     return false;
   }
 
