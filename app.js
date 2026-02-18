@@ -697,12 +697,16 @@ function attachNameEnhancements({
 
   // iOS hint controls
   function showIOSSafariHint() {
-    if (!iosHintEl) return;
-    iosHintEl.classList.add("show");
+    if (iosHintEl) {
+      iosHintEl.classList.remove("show");
+      iosHintEl.setAttribute("aria-hidden", "true");
+    }
+    showBottomToast(t("ios_keyboard_mic_hint"));
   }
   function hideIOSSafariHint() {
     if (!iosHintEl) return;
     iosHintEl.classList.remove("show");
+    iosHintEl.setAttribute("aria-hidden", "true");
   }
   if (iosHintCloseEl && iosHintEl) {
     iosHintCloseEl.onclick = () => hideIOSSafariHint();
@@ -990,7 +994,7 @@ function attachNameEnhancements({
     if (!recognizer) {
       recognizer = initRecognizerIfPossible();
       if (!recognizer) {
-        setStatus(t("status_mic_not_supported"));
+        showBottomToast(t("status_mic_not_supported"));
         return;
       }
 
@@ -1223,6 +1227,15 @@ const modalSubtitle = $("modalSubtitle");
 const modalFields = $("modalFields");
 const modalCancel = $("modalCancel");
 const modalDone = $("modalDone");
+const messageModalOverlay = $("messageModalOverlay");
+const messageModalTitle = $("messageModalTitle");
+const messageModalText = $("messageModalText");
+const messageModalActions = $("messageModalActions");
+const messageModalSecondaryBtn = $("messageModalSecondaryBtn");
+const messageModalPrimaryBtn = $("messageModalPrimaryBtn");
+const statusToast = $("statusToast");
+const statusToastText = $("statusToastText");
+const statusToastCloseBtn = $("statusToastCloseBtn");
 
 // Sort popover
 const sortBtn = $("sortBtn");
@@ -1283,6 +1296,9 @@ const SEEN_RESULTS_BANNER_KEY = "sir_seen_results_banner_v1";
 
 let resultsToastTimer = null;
 let resultsToastRaf = null;
+let statusToastTimer = null;
+let messageModalPrimaryHandler = null;
+let messageModalSecondaryHandler = null;
 
 function setStatus(msg) {
   if (statusLanding) statusLanding.textContent = msg ?? "";
@@ -1350,6 +1366,129 @@ function setMeta(msg) {
   if (metaLanding) metaLanding.textContent = msg ?? "";
   if (metaResults) metaResults.textContent = msg ?? "";
   syncStatusWrapVisibility();
+}
+
+function hideBottomToast() {
+  if (!statusToast) return;
+  if (statusToastTimer) clearTimeout(statusToastTimer);
+  statusToastTimer = null;
+  statusToast.classList.remove("show");
+  statusToast.setAttribute("aria-hidden", "true");
+  if (statusToastText) statusToastText.textContent = "";
+}
+
+function showBottomToast(msg, { durationMs = 4000 } = {}) {
+  const text = String(msg || "").trim();
+  if (!text) return;
+
+  if (!statusToast || !statusToastText) {
+    setStatus(text);
+    return;
+  }
+
+  if (statusToastTimer) clearTimeout(statusToastTimer);
+  statusToastText.textContent = text;
+  statusToast.classList.add("show");
+  statusToast.setAttribute("aria-hidden", "false");
+
+  statusToastTimer = setTimeout(() => {
+    hideBottomToast();
+  }, Math.max(0, Number(durationMs) || 4000));
+}
+
+function runActionSafe(fn) {
+  if (typeof fn !== "function") return;
+  try {
+    const out = fn();
+    if (out && typeof out.then === "function") {
+      out.catch((e) => console.error(e));
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function closeMessagePopup() {
+  if (!messageModalOverlay) return;
+  messageModalOverlay.style.display = "none";
+  messageModalOverlay.setAttribute("aria-hidden", "true");
+  messageModalPrimaryHandler = null;
+  messageModalSecondaryHandler = null;
+}
+
+function openMessagePopup({
+  title = t("banner_important"),
+  message = "",
+  primaryLabel = t("btn_retry"),
+  onPrimary = null,
+  secondaryLabel = "",
+  onSecondary = null,
+} = {}) {
+  const text = String(message || "").trim();
+  if (!text) return;
+
+  if (!messageModalOverlay || !messageModalText || !messageModalPrimaryBtn) {
+    setStatus(text);
+    return;
+  }
+
+  hideBottomToast();
+
+  if (messageModalTitle) messageModalTitle.textContent = String(title || "").trim();
+  messageModalText.textContent = text;
+  messageModalPrimaryBtn.textContent = String(primaryLabel || t("btn_retry"));
+  messageModalPrimaryHandler = typeof onPrimary === "function" ? onPrimary : () => closeMessagePopup();
+
+  const hasSecondary = Boolean(String(secondaryLabel || "").trim() && typeof onSecondary === "function");
+  if (messageModalSecondaryBtn) {
+    messageModalSecondaryBtn.style.display = hasSecondary ? "inline-flex" : "none";
+    if (hasSecondary) {
+      messageModalSecondaryBtn.textContent = String(secondaryLabel);
+    }
+  }
+  if (messageModalActions) messageModalActions.classList.toggle("dual", hasSecondary);
+  messageModalSecondaryHandler = hasSecondary ? onSecondary : null;
+
+  messageModalOverlay.style.display = "flex";
+  messageModalOverlay.setAttribute("aria-hidden", "false");
+}
+
+function hasAnyQueryText() {
+  const qActive = String(getActiveQueryInput()?.value || "").trim();
+  if (qActive) return true;
+  const qL = String(qLanding?.value || "").trim();
+  if (qL) return true;
+  const qR = String(qResults?.value || "").trim();
+  return Boolean(qR);
+}
+
+async function retrySearchOrGoLanding() {
+  closeMessagePopup();
+  if (hasAnyQueryText()) {
+    await runSearch();
+    return;
+  }
+  hideLoader();
+  showLanding();
+  setStatus(t("status_select_district"));
+}
+
+function showRetryOnlyPopup(message) {
+  openMessagePopup({
+    message,
+    primaryLabel: t("btn_retry"),
+    onPrimary: () => retrySearchOrGoLanding(),
+  });
+}
+
+function showOkayRetryPopup(message) {
+  openMessagePopup({
+    message,
+    primaryLabel: t("btn_retry"),
+    onPrimary: () => retrySearchOrGoLanding(),
+    secondaryLabel: t("btn_okay"),
+    onSecondary: () => closeMessagePopup(),
+  });
 }
 
 function syncStatusWrapVisibility() {
@@ -2618,6 +2757,12 @@ function resetWorkerAfterFailure() {
   worker = null;
 }
 
+function makeUiError(code, message) {
+  const err = new Error(String(message || code || "Error"));
+  err.code = String(code || "APP_ERROR");
+  return err;
+}
+
 function initWorker() {
   if (worker) return;
 
@@ -2648,28 +2793,22 @@ function initWorker() {
 
     if (msg.type === "error") {
       const message = String(msg.message || "Worker error");
-      setStatus(t("status_error_retry"));
-      setMeta(message);
       resetWorkerAfterFailure();
-      settleWorkerRequest({ error: new Error(message) });
+      settleWorkerRequest({ error: makeUiError("WORKER_ERROR", message) });
       return;
     }
   };
 
   worker.onerror = (ev) => {
     const message = String(ev?.message || "Worker crashed");
-    setStatus(t("status_error_retry"));
-    setMeta(message);
     resetWorkerAfterFailure();
-    settleWorkerRequest({ error: new Error(message) });
+    settleWorkerRequest({ error: makeUiError("WORKER_ERROR", message) });
   };
 
   worker.onmessageerror = () => {
     const message = "Worker message decode failed";
-    setStatus(t("status_error_retry"));
-    setMeta(message);
     resetWorkerAfterFailure();
-    settleWorkerRequest({ error: new Error(message) });
+    settleWorkerRequest({ error: makeUiError("WORKER_ERROR", message) });
   };
 }
 
@@ -2681,8 +2820,7 @@ function runWorkerRanking(rowsWithMeta, qStrict, exactOn, scopeForWorker, onProg
     pendingProgress = typeof onProgress === "function" ? onProgress : null;
     clearWorkerPendingTimer();
     pendingWorkerTimer = setTimeout(() => {
-      const err = new Error("Worker ranking timed out");
-      setStatus(t("status_worker_timeout"));
+      const err = makeUiError("WORKER_TIMEOUT", "Worker ranking timed out");
       resetWorkerAfterFailure();
       settleWorkerRequest({ error: err });
     }, WORKER_RANK_TIMEOUT_MS);
@@ -3286,7 +3424,8 @@ async function runSearchCore() {
   await applyFiltersThenSortThenRender();
   setStatus(t("status_ready_results", { n: rankedView.length }));
   if (failedAcs.length) {
-    setMeta(
+    setMeta("");
+    showOkayRetryPopup(
       t("status_partial_results_acs", {
         n: failedAcs.length,
         acs: failedAcs.join(", "),
@@ -3307,7 +3446,7 @@ async function runSearchCore() {
 async function runSearch() {
   if (runSearchInFlight) {
     runSearchAgainRequested = true;
-    setStatus(t("status_search_queued"));
+    showBottomToast(t("status_search_queued"));
     return;
   }
 
@@ -3320,9 +3459,12 @@ async function runSearch() {
   } catch (e) {
     console.error("runSearch failed:", e);
     hideLoader();
-    setStatus(t("status_error_retry"));
-    const message = String(e?.message || "").trim();
-    if (message) setMeta(message);
+    setMeta("");
+    if (String(e?.code || "") === "WORKER_TIMEOUT") {
+      showRetryOnlyPopup(t("status_worker_timeout"));
+    } else {
+      showRetryOnlyPopup(t("status_error_retry"));
+    }
   } finally {
     runSearchInFlight = false;
   }
@@ -3367,7 +3509,8 @@ async function renderPage() {
     });
 
     if (failedAcs.length) {
-      setMeta(
+      setMeta("");
+      showOkayRetryPopup(
         t("status_page_rows_partial", {
           n: failedAcs.length,
           acs: failedAcs.join(", "),
@@ -3527,7 +3670,7 @@ function refreshOnStateChange(reason) {
     refreshTimer = null;
     if (runSearchInFlight) {
       runSearchAgainRequested = true;
-      setStatus(t("status_search_queued"));
+      showBottomToast(t("status_search_queued"));
       return;
     }
 
@@ -3570,7 +3713,8 @@ function refreshOnStateChange(reason) {
               lastSearchCtx.searchedACs = searched;
             }
             if (extra?.failedAcs?.length) {
-              setMeta(
+              setMeta("");
+              showOkayRetryPopup(
                 t("status_partial_results_acs", {
                   n: extra.failedAcs.length,
                   acs: extra.failedAcs.join(", "),
@@ -3604,7 +3748,12 @@ function refreshOnStateChange(reason) {
       }
     } catch (e) {
       console.error("refreshOnStateChange failed:", e);
-      setStatus(t("status_error_retry"));
+      setMeta("");
+      if (String(e?.code || "") === "WORKER_TIMEOUT") {
+        showRetryOnlyPopup(t("status_worker_timeout"));
+      } else {
+        showRetryOnlyPopup(t("status_error_retry"));
+      }
     }
   }, 250);
 }
@@ -3969,6 +4118,32 @@ modalDone.onclick = () => {
     console.error(e);
   }
 };
+
+if (statusToastCloseBtn) {
+  statusToastCloseBtn.addEventListener("click", () => hideBottomToast());
+}
+
+if (messageModalPrimaryBtn) {
+  messageModalPrimaryBtn.addEventListener("click", () => {
+    const fn = messageModalPrimaryHandler || (() => closeMessagePopup());
+    runActionSafe(fn);
+  });
+}
+
+if (messageModalSecondaryBtn) {
+  messageModalSecondaryBtn.addEventListener("click", () => {
+    const fn = messageModalSecondaryHandler || (() => closeMessagePopup());
+    runActionSafe(fn);
+  });
+}
+
+if (messageModalOverlay) {
+  messageModalOverlay.addEventListener("click", (e) => {
+    if (e.target !== messageModalOverlay) return;
+    const fn = messageModalSecondaryHandler || (() => closeMessagePopup());
+    runActionSafe(fn);
+  });
+}
 
 function openRelativeNameModal() {
   openModal({

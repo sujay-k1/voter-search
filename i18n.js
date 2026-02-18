@@ -49,6 +49,9 @@ export const I18N = {
     page_size_label: "परिणाम संख्या:",
     cancel: "रद्द करें",
     done: "ठीक है",
+    btn_okay: "ठीक है",
+    btn_retry: "फिर से कोशिश करें",
+    close_toast: "संदेश बंद करें",
     and: "और",
 
     // filters labels
@@ -105,6 +108,7 @@ export const I18N = {
     status_enter_query: "नाम लिखें।",
     status_select_district_first: "पहले ज़िला चुनें।",
     status_mic_not_supported: "इस ब्राउज़र में माइक्रोफोन इनपुट उपलब्ध नहीं है। कृपया टाइप करें।",
+    ios_keyboard_mic_hint: "iPhone Safari पर बोलकर लिखने के लिए कीबोर्ड का माइक उपयोग करें।",
     status_search_queued: "पिछली खोज चल रही है, नई खोज उसके बाद चलेगी…",
     status_error_retry: "कुछ गड़बड़ हुई। कृपया दोबारा खोजें।",
     status_worker_timeout: "खोज में अपेक्षा से अधिक समय लग रहा है। कृपया फिर से प्रयास करें।",
@@ -238,6 +242,9 @@ export const I18N = {
     page_size_label: "Page size:",
     cancel: "Cancel",
     done: "Done",
+    btn_okay: "Okay",
+    btn_retry: "Retry",
+    close_toast: "Message band karein",
     and: "AND",
 
     filter_gender: "Gender",
@@ -290,6 +297,7 @@ export const I18N = {
     status_enter_query: "Query enter karein.",
     status_select_district_first: "Pehle district select karein.",
     status_mic_not_supported: "Is browser mein microphone input available nahi hai. Kripya type karein.",
+    ios_keyboard_mic_hint: "iPhone Safari par bolkar likhne ke liye keyboard ka mic use karein.",
     status_search_queued: "Pehli search chal rahi hai, nayi search uske baad chalegi…",
     status_error_retry: "Kuch galat hua. Kripya dobara search karein.",
     status_worker_timeout: "Search expected se zyada time le rahi hai. Kripya phir se try karein.",
@@ -420,6 +428,9 @@ export const I18N = {
     page_size_label: "Page size:",
     cancel: "Cancel",
     done: "Done",
+    btn_okay: "Okay",
+    btn_retry: "Retry",
+    close_toast: "Close message",
     and: "AND",
 
     filter_gender: "Gender",
@@ -472,6 +483,7 @@ export const I18N = {
     status_enter_query: "Enter a query.",
     status_select_district_first: "Select a district first.",
     status_mic_not_supported: "Microphone input is not available in this browser. Please type instead.",
+    ios_keyboard_mic_hint: "On iPhone Safari, use your keyboard microphone to dictate.",
     status_search_queued: "A search is already running. Your latest search will run next…",
     status_error_retry: "Something went wrong. Please retry your search.",
     status_worker_timeout: "Search is taking longer than expected. Please try again.",
