@@ -2294,6 +2294,14 @@ function refreshChipLabels() {
   chipAnywhere.textContent = t("chip_anywhere_plain");
 }
 
+function canUseMoreFilters(scope = searchScope) {
+  return scope === SCOPE.VOTER || scope === SCOPE.RELATIVE || scope === SCOPE.ANYWHERE;
+}
+
+function canUseRelativeNameFilter(scope = searchScope) {
+  return scope === SCOPE.VOTER;
+}
+
 function setActiveChip(scope) {
   searchScope = scope;
 
@@ -2303,13 +2311,11 @@ function setActiveChip(scope) {
 
   refreshChipLabels();
 
-  const enabled = scope === SCOPE.VOTER;
-  moreFiltersBtn.disabled = !enabled;
-
-  if (!enabled) {
-    closeFiltersPopover();
-    clearFilters();
+  if (!canUseRelativeNameFilter(scope)) {
+    filters.relativeName = "";
   }
+  updateMoreFiltersEnabled();
+  renderFiltersPopoverRoot();
 
   refreshOnStateChange("scope");
 }
@@ -3461,7 +3467,7 @@ function exactOnFromIncludeTyping() {
 }
 
 function updateMoreFiltersEnabled() {
-  moreFiltersBtn.disabled = !(searchScope === SCOPE.VOTER);
+  moreFiltersBtn.disabled = !canUseMoreFilters(searchScope);
 }
 
 // Compute row-id set by Gender/Age for ONE AC
@@ -3574,16 +3580,16 @@ async function computeRowIdSetByRelativeFilterForAc(acNo, exactOn) {
 async function applyFiltersThenSortThenRender() {
   filteredBase = rankedByRelevance.slice();
 
-  if (searchScope !== SCOPE.VOTER) {
-    clearFilters();
+  const allowRelativeFilter = canUseRelativeNameFilter(searchScope);
+  if (!allowRelativeFilter && filters.relativeName) {
+    filters.relativeName = "";
   }
 
-  if (searchScope === SCOPE.VOTER && rankedByRelevance.length) {
-    const exactOn = exactOnFromIncludeTyping();
-
-    const hasRel = Boolean(norm(filters.relativeName || ""));
+  if (rankedByRelevance.length) {
+    const hasRel = allowRelativeFilter && Boolean(norm(filters.relativeName || ""));
     const hasGender = filters.gender !== "all";
     const hasAge = filters.age.mode !== "any";
+    const exactOn = hasRel ? exactOnFromIncludeTyping() : true;
 
     if (hasRel || hasGender || hasAge) {
       const byAc = new Map();
@@ -4188,9 +4194,9 @@ function refreshOnStateChange(reason) {
 }
 
 // ---------- Popover helpers ----------
-function popRow({ left, right, chevron = true, selected = false, onClick }) {
+function popRow({ left, right, chevron = true, selected = false, disabled = false, onClick }) {
   const div = document.createElement("div");
-  div.className = `popRow${selected ? " popSelected" : ""}`;
+  div.className = `popRow${selected ? " popSelected" : ""}${disabled ? " popDisabled" : ""}`;
   div.innerHTML = `
     <div class="popLeft">${escapeHtml(left)}</div>
     <div class="popRight">
@@ -4198,7 +4204,8 @@ function popRow({ left, right, chevron = true, selected = false, onClick }) {
       ${chevron ? `<span class="popChevron" aria-hidden="true"></span>` : ""}
     </div>
   `;
-  div.onclick = onClick;
+  if (!disabled && typeof onClick === "function") div.onclick = onClick;
+  else div.setAttribute("aria-disabled", "true");
   return div;
 }
 
@@ -4229,6 +4236,7 @@ function renderFiltersPopoverRoot() {
   if (filtersPopover.style.display === "none") return;
   popView = "root";
   filtersPopover.innerHTML = "";
+  const allowRelativeFilter = canUseRelativeNameFilter(searchScope);
 
   const g = popRow({
     left: t("filter_gender"),
@@ -4248,6 +4256,7 @@ function renderFiltersPopoverRoot() {
     left: t("filter_relative_name"),
     right: relativeFilterLabel(),
     chevron: false,
+    disabled: !allowRelativeFilter,
     onClick: () => openRelativeNameModal(),
   });
 
@@ -4670,6 +4679,20 @@ function closeDistrictPopovers() {
   closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
 }
 
+function isDistrictPopoverSearchEnabled() {
+  return !isMobileUI();
+}
+
+function syncDistrictPopoverSearchMode(popEl) {
+  if (!popEl) return;
+  const searchWrap = popEl.querySelector(".popSearch");
+  const inputEl = popEl.querySelector("input[data-role='district-search']");
+  const enabled = isDistrictPopoverSearchEnabled();
+
+  if (searchWrap) searchWrap.style.display = enabled ? "" : "none";
+  if (inputEl) inputEl.disabled = !enabled;
+}
+
 // build popover skeleton once, keep input stable to prevent caret jumping
 function ensureDistrictPopoverSkeleton(popEl) {
   if (popEl.dataset.built === "1") return;
@@ -4695,6 +4718,7 @@ function ensureDistrictPopoverSkeleton(popEl) {
     updateDistrictPopoverList(popEl);
   });
 
+  syncDistrictPopoverSearchMode(popEl);
   popEl.dataset.built = "1";
 }
 
@@ -4702,6 +4726,7 @@ function updateDistrictPopoverList(popEl) {
   const listEl = popEl.querySelector("div[data-role='district-list']");
   const inputEl = popEl.querySelector("input[data-role='district-search']");
   if (!listEl) return;
+  syncDistrictPopoverSearchMode(popEl);
 
   // keep placeholder translated even when language switches (rebuild placeholder if needed)
   if (inputEl) {
@@ -4713,7 +4738,7 @@ function updateDistrictPopoverList(popEl) {
 
   listEl.innerHTML = "";
 
-  const qRaw = (districtQuery || "").trim();
+  const qRaw = isDistrictPopoverSearchEnabled() ? (districtQuery || "").trim() : "";
   const qNorm = normDistrictSearchStr(qRaw);
   const qNoSpace = qNorm.replace(/\s+/g, "");
   const list = (districtManifest?.districts || []).filter((d) => districtMatchesQuery(d, qNorm, qNoSpace));
