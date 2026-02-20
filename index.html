@@ -1286,11 +1286,11 @@
 
     .rowDetailModal{
       position: relative;
-      padding: 16px;
+      padding: 24px;
       background: #f3f3f4;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 16px;
       --rowDetailPairGap: 12px;
     }
     .rowDetailHeader{
@@ -1307,7 +1307,7 @@
     .rowDetailRelativeGroup{
       display: flex;
       flex-direction: column;
-      gap: var(--rowDetailPairGap);
+      gap: 0px;
     }
     .rowDetailTitle{
       margin: 0;
@@ -1337,16 +1337,16 @@
     .rowDetailRelation{
       margin: 0;
       color: rgba(0,0,0,.56);
-      font-size: 16px;
-      line-height: 1.25;
+      font-size: 12px;
+      line-height: 20px;
       font-weight: 500;
     }
     .rowDetailRelativeName{
       margin: 0;
       color: #1f2227;
-      font-size: 46px;
-      line-height: 1.08;
-      font-weight: 700;
+      font-size: 16px;
+      line-height: 24px;
+      font-weight: 500;
       letter-spacing: -0.01em;
     }
     .rowDetailMetaGrid{
@@ -1357,17 +1357,17 @@
     .rowDetailMetaLabel{
       margin: 0;
       color: rgba(0,0,0,.56);
-      font-size: 16px;
-      line-height: 1.25;
+      font-size: 12px;
+      line-height: 20px;
       font-weight: 500;
       white-space: nowrap;
     }
     .rowDetailMetaValue{
-      margin: var(--rowDetailPairGap) 0 0;
+      margin: 0px;
       color: #1f2227;
-      font-size: 46px;
-      line-height: 1.08;
-      font-weight: 700;
+      font-size: 16px;
+      line-height: 24px;
+      font-weight: 500;
       letter-spacing: -0.01em;
       white-space: nowrap;
     }
@@ -2085,27 +2085,27 @@
       </div>
 
       <div class="rowDetailIdentity">
-        <h2 class="rowDetailName" id="rowDetailName"></h2>
-        <p class="rowDetailAgeGender" id="rowDetailAgeGender"></p>
+        <h2 class="rowDetailName" id="rowDetailName" style="margin-bottom: 6px;"></h2>
+        <div class="rowDetailAgeGender" id="rowDetailAgeGender"></div>
       </div>
 
       <div class="rowDetailRelativeGroup">
-        <p class="rowDetailRelation" id="rowDetailRelation"></p>
-        <p class="rowDetailRelativeName" id="rowDetailRelativeName"></p>
+        <div class="rowDetailRelation" id="rowDetailRelation"></div>
+        <div class="rowDetailRelativeName" id="rowDetailRelativeName"></div>
       </div>
 
       <div class="rowDetailMetaGrid">
         <div>
-          <p class="rowDetailMetaLabel" data-i18n="row_detail_ac">Assembly Constituency</p>
-          <p class="rowDetailMetaValue" id="rowDetailAcValue"></p>
+          <div class="rowDetailMetaLabel" data-i18n="row_detail_ac">Assembly Constituency</div>
+          <div class="rowDetailMetaValue" id="rowDetailAcValue"></div>
         </div>
         <div>
-          <p class="rowDetailMetaLabel" data-i18n="row_detail_part">Part</p>
-          <p class="rowDetailMetaValue" id="rowDetailPartValue"></p>
+          <div class="rowDetailMetaLabel" data-i18n="row_detail_part">Part</div>
+          <div class="rowDetailMetaValue" id="rowDetailPartValue"></div>
         </div>
         <div>
-          <p class="rowDetailMetaLabel" data-i18n="row_detail_serial">Serial Number</p>
-          <p class="rowDetailMetaValue" id="rowDetailSerialValue"></p>
+          <div class="rowDetailMetaLabel" data-i18n="row_detail_serial">Serial Number</div>
+          <div class="rowDetailMetaValue" id="rowDetailSerialValue"></div>
         </div>
       </div>
 
