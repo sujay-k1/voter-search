@@ -452,7 +452,7 @@ const TRANSLIT = {
   num: 5,
   debounceMs: 120,
 };
-const MIC_AUTO_STOP_MS = 4000;
+const MIC_AUTO_STOP_MS = 6000;
 
 function isDevanagariChar(ch) {
   if (!ch) return false;
@@ -542,9 +542,11 @@ function ensureTranslitPopoverSkeleton(popEl) {
 function openTranslitPopover(popEl, anchorWrapEl) {
   if (!popEl) return;
 
-  // keep same style and anchoring behavior as other popovers
+  // Transliteration suggestions are left-aligned to the input field only.
   popEl.style.display = "block";
   popEl.setAttribute("aria-hidden", "false");
+  popEl.style.left = "0";
+  popEl.style.right = "auto";
 
   // ensure width matches input wrap
   if (anchorWrapEl) {
@@ -797,7 +799,7 @@ function attachNameEnhancements({
       showPrimary: false,
       secondaryLabel: denied ? t("cancel") : "",
       onSecondary: denied ? () => closeMessagePopup() : null,
-      topOffsetVh: 15,
+      topOffsetVh: 10,
       overlayClass: denied ? "" : "micPermissionGuideSolidOverlay",
     });
   }
@@ -1929,6 +1931,15 @@ function scrollLandingInputToTopGap(inputEl, gapPx = LANDING_INPUT_TOP_GAP_PX) {
     baselineViewportH,
   });
 
+  window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+}
+
+function scrollElementToTopGap(inputEl, gapPx = LANDING_INPUT_TOP_GAP_PX) {
+  if (!inputEl) return;
+  const prevScrollY = window.scrollY || window.pageYOffset || 0;
+  const rect = inputEl.getBoundingClientRect();
+  const targetScrollY = Math.max(0, Math.round(prevScrollY + rect.top - gapPx));
+  if (Math.abs(targetScrollY - prevScrollY) < 2) return;
   window.scrollTo({ top: targetScrollY, behavior: "smooth" });
 }
 
@@ -4401,8 +4412,10 @@ function openDistrictPopover(popEl, btnEl) {
   ensureDistrictPopoverSkeleton(popEl);
   updateDistrictPopoverList(popEl);
 
-  const input = popEl.querySelector("input[data-role='district-search']");
-  if (input) setTimeout(() => input.focus(), 0);
+  // Do not autofocus district-search (prevents keyboard opening on popover open).
+  // Keep the same top-gap scroll behavior as the primary search-field activation.
+  const activeInput = getActiveQueryInput();
+  if (activeInput) scrollElementToTopGap(activeInput, LANDING_INPUT_TOP_GAP_PX);
 }
 
 function closeDistrictPopover(popEl, btnEl) {

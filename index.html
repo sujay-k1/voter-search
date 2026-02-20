@@ -1,9 +1,10 @@
 <!-- index.html (drop-in replacement) -->
 <!doctype html>
-<html lang="hi">
+<html lang="hi" translate="no" class="notranslate">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="google" content="notranslate" />
   <title>Jharkhand Electoral Roll - 2003</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" />
   <style>
@@ -32,6 +33,10 @@
 
     * { box-sizing: border-box; }
     html, body { height: 100%; }
+    html{
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
 
     body{
       margin: 0;
@@ -360,11 +365,11 @@
       stroke-width: 2.1;
       stroke-linecap: round;
       stroke-dasharray: 126;
-      stroke-dashoffset: 0;
+      stroke-dashoffset: 126;
       opacity: 0;
     }
 
-    /* Listening state: morph mic to stop icon + red ring unfill animation */
+    /* Listening state: morph mic to stop icon + red ring fill animation */
     .micBtn.listening{
       border-color: rgba(0,0,0,.22);
       background: rgba(255, 210, 225, .65);
@@ -373,7 +378,8 @@
     }
     .micBtn.listening .micProgressRingCircle{
       opacity: 1;
-      animation: micRingDrain 4s linear forwards;
+      stroke-dashoffset: 126;
+      animation: micRingFill 6s linear forwards;
     }
     .micBtn.listening .micIcon{
       top: 0;
@@ -399,9 +405,9 @@
       50% { box-shadow: 0 10px 30px rgba(180, 50, 95, .24); }
       100% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
     }
-    @keyframes micRingDrain{
-      0% { stroke-dashoffset: 0; }
-      100% { stroke-dashoffset: 126; }
+    @keyframes micRingFill{
+      0% { stroke-dashoffset: 126; }
+      100% { stroke-dashoffset: 0; }
     }
 
     .listeningChip{
