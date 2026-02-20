@@ -4492,6 +4492,12 @@ function openAgeModal(mode) {
 // ---------- District popovers (landing + results) ----------
 function openDistrictPopover(popEl, btnEl) {
   if (!districtManifest?.districts?.length) return;
+
+  // District popovers are the only popovers that should be left-aligned
+  // with their trigger shell (landing + results).
+  popEl.style.left = "0";
+  popEl.style.right = "auto";
+
   popEl.style.display = "block";
   popEl.setAttribute("aria-hidden", "false");
   if (btnEl) btnEl.setAttribute("aria-expanded", "true");
