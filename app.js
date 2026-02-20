@@ -1277,6 +1277,8 @@ function applyTranslationsToDOM() {
     if (acPopover && acPopover.style.display !== "none") renderAcPopover();
   } catch {}
 
+  if (activeRowDetail) renderRowDetailModal();
+
   if (pageSizeBtn) {
     const label = document.querySelector("[data-i18n='page_size_label']");
     if (label) label.textContent = t("page_size_label");
@@ -1395,6 +1397,16 @@ const messageModalText = $("messageModalText");
 const messageModalActions = $("messageModalActions");
 const messageModalSecondaryBtn = $("messageModalSecondaryBtn");
 const messageModalPrimaryBtn = $("messageModalPrimaryBtn");
+const rowDetailOverlay = $("rowDetailOverlay");
+const rowDetailCloseBtn = $("rowDetailCloseBtn");
+const rowDetailName = $("rowDetailName");
+const rowDetailAgeGender = $("rowDetailAgeGender");
+const rowDetailRelation = $("rowDetailRelation");
+const rowDetailRelativeName = $("rowDetailRelativeName");
+const rowDetailAcValue = $("rowDetailAcValue");
+const rowDetailPartValue = $("rowDetailPartValue");
+const rowDetailSerialValue = $("rowDetailSerialValue");
+const rowDetailCta = $("rowDetailCta");
 const statusToast = $("statusToast");
 const statusToastText = $("statusToastText");
 const statusToastCloseBtn = $("statusToastCloseBtn");
@@ -1461,6 +1473,7 @@ let resultsToastRaf = null;
 let statusToastTimer = null;
 let messageModalPrimaryHandler = null;
 let messageModalSecondaryHandler = null;
+let activeRowDetail = null;
 
 function setStatus(msg) {
   const text = String(msg ?? "").trim();
@@ -1528,6 +1541,77 @@ function setBar(pct) {
 function setMeta(msg) {
   // Inline meta surface is retired by design.
   void msg;
+}
+
+function rowDetailDisplayValue(v) {
+  const s = formatCell(v).trim();
+  return s || "—";
+}
+
+function composeAgeGenderText(row) {
+  const age = formatCell(row?.["Age"]).trim();
+  const gender = formatCell(row?.["Gender"]).trim();
+  if (age && gender) return `${age}, ${gender}`;
+  return age || gender || "—";
+}
+
+function getAcDisplayForDetail(row) {
+  const rawAc = Number(row?.["AC No"]);
+  if (!Number.isFinite(rawAc)) return rowDetailDisplayValue(row?.["AC No"]);
+  const label = getAcOptionLabel(rawAc);
+  return String(label || rawAc);
+}
+
+function renderRowDetailModal() {
+  if (!activeRowDetail) return;
+  const row = activeRowDetail.row;
+
+  if (rowDetailName) rowDetailName.textContent = rowDetailDisplayValue(row?.["Voter Name"]);
+  if (rowDetailAgeGender) rowDetailAgeGender.textContent = composeAgeGenderText(row);
+  if (rowDetailRelation) rowDetailRelation.textContent = rowDetailDisplayValue(row?.["Relation"]);
+  if (rowDetailRelativeName) rowDetailRelativeName.textContent = rowDetailDisplayValue(row?.["Relative Name"]);
+  if (rowDetailAcValue) rowDetailAcValue.textContent = getAcDisplayForDetail(row);
+  if (rowDetailPartValue) rowDetailPartValue.textContent = rowDetailDisplayValue(row?.["Part No"]);
+  if (rowDetailSerialValue) rowDetailSerialValue.textContent = rowDetailDisplayValue(row?.["Serial No"]);
+
+  const page = rowDetailDisplayValue(row?.["Page No"]);
+  if (rowDetailCta) {
+    rowDetailCta.textContent = t("row_detail_cta_validate", { page });
+    if (activeRowDetail.pdfUrl) {
+      rowDetailCta.href = activeRowDetail.pdfUrl;
+      rowDetailCta.classList.remove("isDisabled");
+      rowDetailCta.setAttribute("aria-disabled", "false");
+      rowDetailCta.setAttribute("tabindex", "0");
+    } else {
+      rowDetailCta.removeAttribute("href");
+      rowDetailCta.classList.add("isDisabled");
+      rowDetailCta.setAttribute("aria-disabled", "true");
+      rowDetailCta.setAttribute("tabindex", "-1");
+    }
+  }
+}
+
+function closeRowDetailModal() {
+  if (!rowDetailOverlay) return;
+  rowDetailOverlay.style.display = "none";
+  rowDetailOverlay.setAttribute("aria-hidden", "true");
+  activeRowDetail = null;
+}
+
+function openRowDetailModalFromKey(key) {
+  const row = displayCache.get(String(key || ""));
+  if (!row) return;
+
+  activeRowDetail = {
+    key: String(key),
+    row,
+    pdfUrl: buildPdfUrl(row),
+  };
+  renderRowDetailModal();
+
+  if (!rowDetailOverlay) return;
+  rowDetailOverlay.style.display = "flex";
+  rowDetailOverlay.setAttribute("aria-hidden", "false");
 }
 
 function hideBottomToast() {
@@ -1688,6 +1772,7 @@ function syncStatusWrapVisibility() {
 
 function showLanding() {
   clearLandingScrollRestoreHandlers();
+  closeRowDetailModal();
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
   if (announcementSection) announcementSection.style.display = "none";
@@ -1698,6 +1783,7 @@ function showLanding() {
 
 function showResults() {
   clearLandingScrollRestoreHandlers();
+  closeRowDetailModal();
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
   if (announcementSection) announcementSection.style.display = "none";
@@ -1711,6 +1797,7 @@ function showResults() {
 
 function showAnnouncementPage() {
   clearLandingScrollRestoreHandlers();
+  closeRowDetailModal();
   landingSection.style.display = "none";
   resultsSection.style.display = "none";
   if (announcementSection) announcementSection.style.display = "block";
@@ -3767,7 +3854,7 @@ function renderTable(rows, infoMap) {
           const info = infoMap.get(k);
 
           return `
-          <tr>
+          <tr class="resultRowOpenable" data-row-key="${escapeHtml(k)}">
             ${headerDefs
               .map((h) => {
                 const sticky = h.key === STICKY_COL_KEY ? "stickyCol" : "";
@@ -4760,6 +4847,7 @@ document.addEventListener("keydown", (e) => {
     closeSortPopover();
     closePageSizePopover();
     closeModal();
+    closeRowDetailModal();
 
     // NEW: translit popovers
     closeTranslitPopover($("translitPopoverLanding"));
@@ -4779,6 +4867,28 @@ wireIMEEnter(qResults, runSearch);
 
 clearBtn.onclick = () => clearAll();
 clearBtnTop?.addEventListener("click", () => clearAll());
+
+const resultsRoot = $("results");
+resultsRoot?.addEventListener("click", (e) => {
+  const target = e.target;
+  if (!(target instanceof Element)) return;
+
+  const directLink = target.closest("a");
+  if (directLink) return;
+
+  const rowEl = target.closest("tr.resultRowOpenable");
+  if (!rowEl || !resultsRoot.contains(rowEl)) return;
+
+  const rowKey = String(rowEl.getAttribute("data-row-key") || "").trim();
+  if (!rowKey) return;
+  openRowDetailModalFromKey(rowKey);
+});
+
+rowDetailCloseBtn?.addEventListener("click", () => closeRowDetailModal());
+rowDetailOverlay?.addEventListener("click", (e) => {
+  if (e.target !== rowDetailOverlay) return;
+  closeRowDetailModal();
+});
 
 prevBtn.onclick = async () => {
   page--;

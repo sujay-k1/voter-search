@@ -204,6 +204,11 @@ export const I18N = {
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "PDF खोलें",
+    row_detail_title: "मतदाता विवरण",
+    row_detail_ac: "निर्वाचन क्षेत्र",
+    row_detail_part: "भाग",
+    row_detail_serial: "सीरियल नंबर",
+    row_detail_cta_validate: "सरकारी रिकॉर्ड से मिलान करें, पेज {page} →",
 
     // page info prefix
     showing_prefix: "{from}-{to} / ",
@@ -394,6 +399,11 @@ export const I18N = {
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "Open PDF",
+    row_detail_title: "Electoral roll details",
+    row_detail_ac: "Assembly Constituency",
+    row_detail_part: "Part",
+    row_detail_serial: "Serial Number",
+    row_detail_cta_validate: "Government record se validate karein, page {page} →",
 
     showing_prefix: "Showing {from}-{to} of ",
     page_x_of_y: "Page {p}/{t}",
@@ -582,6 +592,11 @@ export const I18N = {
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "Open PDF",
+    row_detail_title: "Electoral roll details",
+    row_detail_ac: "Assembly Constituency",
+    row_detail_part: "Part",
+    row_detail_serial: "Serial Number",
+    row_detail_cta_validate: "Validate with government record, page {page} →",
 
     showing_prefix: "Showing {from}-{to} of ",
     page_x_of_y: "Page {p}/{t}",

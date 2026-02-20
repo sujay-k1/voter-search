@@ -1005,6 +1005,8 @@
     th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; transition: box-shadow 140ms ease; }
     .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; transition: box-shadow 140ms ease; }
     th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; transition: box-shadow 140ms ease; }
+    tr.resultRowOpenable{ cursor: pointer; }
+    tr.resultRowOpenable a{ cursor: pointer; }
     .tableRegion.scrolled-y th{ border-bottom-color: rgba(0,0,0,.22); }
     .tableRegion.scrolled-y th::before{
       content: "";
@@ -1282,6 +1284,94 @@
       justify-content:space-between;
     }
 
+    .rowDetailModal{
+      position: relative;
+      padding: 30px 32px 30px;
+      background: #f3f3f4;
+    }
+    .rowDetailModal .infoBannerClose{
+      top: 20px;
+      right: 20px;
+    }
+    .rowDetailTitle{
+      margin: 0;
+      color: rgba(0,0,0,.56);
+      font-size: 17px;
+      line-height: 1.35;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+    .rowDetailName{
+      margin: 22px 0 0;
+      color: #1f2227;
+      font-size: clamp(50px, 7vw, 60px);
+      line-height: 1.03;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .rowDetailAgeGender{
+      margin: 12px 0 0;
+      color: #2a2d32;
+      font-size: 40px;
+      line-height: 1.08;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+    .rowDetailRelation{
+      margin: 30px 0 0;
+      color: rgba(0,0,0,.56);
+      font-size: 17px;
+      line-height: 1.32;
+      font-weight: 600;
+    }
+    .rowDetailRelativeName{
+      margin: 8px 0 0;
+      color: #1f2227;
+      font-size: 52px;
+      line-height: 1.04;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .rowDetailMetaGrid{
+      margin-top: 34px;
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr);
+      gap: 16px;
+    }
+    .rowDetailMetaLabel{
+      margin: 0;
+      color: rgba(0,0,0,.56);
+      font-size: 17px;
+      line-height: 1.35;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .rowDetailMetaValue{
+      margin: 6px 0 0;
+      color: #1f2227;
+      font-size: 46px;
+      line-height: 1.05;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .rowDetailCta{
+      margin-top: 34px;
+      display: inline-flex;
+      align-items: center;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 44px;
+      line-height: 1.08;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .rowDetailCta.isDisabled{
+      pointer-events: none;
+      color: rgba(0,0,0,.42);
+      text-decoration: none;
+    }
+
     .statusToast{
       position: fixed;
       left: 50%;
@@ -1457,6 +1547,56 @@
       .announcementGaps li{ font-size: 16px; line-height: 1.45; }
       .announcementWhatsApp{ font-size: 18px; line-height: 1.2; }
       .bannerContentWrap {display: flex; flex-direction: column; gap: 4px;}
+      .rowDetailModal{
+        padding: 24px 20px 24px;
+      }
+      .rowDetailModal .infoBannerClose{
+        top: 12px;
+        right: 12px;
+      }
+      .rowDetailTitle{
+        font-size: 16px;
+        line-height: 1.3;
+      }
+      .rowDetailName{
+        margin-top: 18px;
+        font-size: 56px;
+        line-height: 1.03;
+      }
+      .rowDetailAgeGender{
+        margin-top: 10px;
+        font-size: 40px;
+        line-height: 1.08;
+      }
+      .rowDetailRelation{
+        margin-top: 24px;
+        font-size: 16px;
+        line-height: 1.3;
+      }
+      .rowDetailRelativeName{
+        margin-top: 6px;
+        font-size: 50px;
+        line-height: 1.04;
+      }
+      .rowDetailMetaGrid{
+        margin-top: 24px;
+        gap: 10px;
+        grid-template-columns: minmax(0, 1.65fr) minmax(0, .85fr) minmax(0, 1fr);
+      }
+      .rowDetailMetaLabel{
+        font-size: 14px;
+        line-height: 1.3;
+      }
+      .rowDetailMetaValue{
+        margin-top: 4px;
+        font-size: 32px;
+        line-height: 1.08;
+      }
+      .rowDetailCta{
+        margin-top: 24px;
+        font-size: 34px;
+        line-height: 1.1;
+      }
 
 
       /* Mobile-only: collapse scope + filters on table scroll */
@@ -1965,6 +2105,42 @@
         <button class="done" id="messageModalPrimaryBtn" type="button"></button>
       </div>
     </div>
+  </div>
+
+  <div class="modalOverlay" id="rowDetailOverlay" aria-hidden="true">
+    <article class="modal rowDetailModal" role="dialog" aria-modal="true" aria-labelledby="rowDetailName">
+      <button
+        class="infoBannerClose"
+        id="rowDetailCloseBtn"
+        type="button"
+        aria-label="Close details"
+        title="Close details"
+        data-i18n-aria-label="close_toast"
+        data-i18n-title="close_toast">&times;</button>
+
+      <p class="rowDetailTitle" data-i18n="row_detail_title">Electoral roll details</p>
+      <h2 class="rowDetailName" id="rowDetailName"></h2>
+      <p class="rowDetailAgeGender" id="rowDetailAgeGender"></p>
+      <p class="rowDetailRelation" id="rowDetailRelation"></p>
+      <p class="rowDetailRelativeName" id="rowDetailRelativeName"></p>
+
+      <div class="rowDetailMetaGrid">
+        <div>
+          <p class="rowDetailMetaLabel" data-i18n="row_detail_ac">Assembly Constituency</p>
+          <p class="rowDetailMetaValue" id="rowDetailAcValue"></p>
+        </div>
+        <div>
+          <p class="rowDetailMetaLabel" data-i18n="row_detail_part">Part</p>
+          <p class="rowDetailMetaValue" id="rowDetailPartValue"></p>
+        </div>
+        <div>
+          <p class="rowDetailMetaLabel" data-i18n="row_detail_serial">Serial Number</p>
+          <p class="rowDetailMetaValue" id="rowDetailSerialValue"></p>
+        </div>
+      </div>
+
+      <a class="rowDetailCta" id="rowDetailCta" href="#" target="_blank" rel="noopener noreferrer"></a>
+    </article>
   </div>
 
   <div class="statusToast" id="statusToast" aria-live="polite" aria-hidden="true">
