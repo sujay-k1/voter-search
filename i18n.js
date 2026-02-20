@@ -22,7 +22,7 @@ export const I18N = {
     placeholder_query: "अपना नाम टाइप करने के लिए माइक दबायें →",
     btn_search: "खोजें",
     include_typing: "सरकारी रिकॉर्ड में मेरे नाम की स्पेलिंग ग़लत भी हो सकती है",
-    tip_text: "टिप: अपना ज़िला चुनें फिर नाम लिख कर खोजें बटन दबायें",
+    tip_text: "हिंट: अपना ज़िला चुनें फिर नाम लिख कर खोजें बटन दबायें",
     mic_listening: "माइक चालू है, बोलें…",
 
     // footer
@@ -39,7 +39,7 @@ export const I18N = {
     chip_relative: "रिश्तेदार का नाम",
     chip_anywhere: "कहीं भी",
 
-    more_filters: "अन्य फ़िल्टर",
+    more_filters: "खोज का दायरा",
     search_results: "परिणाम",
 
     // pager + modal
@@ -130,8 +130,8 @@ export const I18N = {
     progress_ac_context: "निर्वाचन क्षेत्र {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
     banner_important: "ध्यान दें:",
-    banner_text: "प्रत्येक नाम के साथ पेज नंबर, सीरियल नंबर और संबंधित PDF फ़ाइल है। कृपया लाइन के अंत पर दाएँ ओर PDF खोल के नाम की जाँच कर लें।",
-    know_more: "अधिक जानें",
+    banner_text: "अपने ढूंढे हुए नाम पर क्लिक करें और सरकारी रिकॉर्ड के साथ मिलान कर लें।",
+    know_more: "अधिक जानने के लिए यहाँ क्लिक करें",
     close_banner: "बैनर बंद करें",
     faq_open_announcement: "पोर्टल के बारे में जानकारी खोलें",
     go_back: "वापस जाएँ",
