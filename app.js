@@ -545,7 +545,7 @@ function openTranslitPopover(popEl, anchorWrapEl) {
   // Transliteration suggestions are left-aligned to the input field only.
   popEl.style.display = "block";
   popEl.setAttribute("aria-hidden", "false");
-  popEl.style.left = "0";
+  popEl.style.left = "8px";
   popEl.style.right = "auto";
 
   // ensure width matches input wrap
