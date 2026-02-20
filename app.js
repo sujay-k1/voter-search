@@ -4662,7 +4662,22 @@ function openDistrictPopover(popEl, btnEl) {
   ensureDistrictPopoverSkeleton(popEl);
   updateDistrictPopoverList(popEl);
 
-  // Do not autofocus district-search (prevents keyboard opening on popover open).
+  // Desktop-only autofocus for district search.
+  const districtSearchInput = popEl.querySelector("input[data-role='district-search']");
+  if (isDistrictPopoverSearchEnabled() && districtSearchInput && !districtSearchInput.disabled) {
+    try {
+      districtSearchInput.focus({ preventScroll: true });
+    } catch {
+      try {
+        districtSearchInput.focus();
+      } catch {}
+    }
+    try {
+      const len = districtSearchInput.value?.length || 0;
+      districtSearchInput.setSelectionRange(len, len);
+    } catch {}
+  }
+
   // Keep the same top-gap scroll behavior as the primary search-field activation.
   const activeInput = getActiveQueryInput();
   if (activeInput) scrollElementToTopGap(activeInput, LANDING_INPUT_TOP_GAP_PX);
