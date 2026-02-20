@@ -545,7 +545,7 @@ function openTranslitPopover(popEl, anchorWrapEl) {
   // Transliteration suggestions are left-aligned to the input field only.
   popEl.style.display = "block";
   popEl.setAttribute("aria-hidden", "false");
-  popEl.style.left = "8px";
+  popEl.style.left = "-8px";
   popEl.style.right = "auto";
 
   // ensure width matches input wrap
@@ -2315,8 +2315,31 @@ function setActiveChip(scope) {
 }
 
 // ---------------- Strict normalization ----------------
+const DEV_JOIN_CTRL_RE = /[\u200C\u200D]/g;
+const DEV_CONSONANT_RE = /[क-हक़-य़]/;
+const HALANT_CHAR = "्";
+const PREFIX_EXPAND_WINDOW = 5;
+const NASAL_FAMILY_UNITS = ["न्", "म्", "ं", "ँ", "न", "म"];
+
+function normalizeSearchComposition(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(DEV_JOIN_CTRL_RE, "")
+    .replace(/\u094D[\s\u00A0]+/g, "\u094D")
+    .replace(/[\s\u00A0]+\u094D/g, "\u094D");
+}
+
+function hasDevanagariChars(s) {
+  return /[\u0900-\u097F]/.test(String(s || ""));
+}
+
+function isDevConsonantChar(ch) {
+  return DEV_CONSONANT_RE.test(String(ch || ""));
+}
+
 function norm(s) {
   if (s == null) return "";
+  s = normalizeSearchComposition(s);
   s = String(s).replace(/\u00a0/g, " ").trim();
   s = s.replace(/[.,;:|/\\()[\]{}<>"'~!@#$%^&*_+=?-]/g, " ");
   s = s.replace(/\s+/g, " ").trim();
@@ -2440,6 +2463,116 @@ function tokenizeLoose(s) {
   s = normLoose(s);
   if (!s) return [];
   return s.split(" ").filter(Boolean);
+}
+
+function expandNasalFamilyHead(head) {
+  const src = String(head || "");
+  if (!src) return new Set([""]);
+  if (!(src.includes("न्") || src.includes("म्") || /[ंँनम]/.test(src))) return new Set([src]);
+
+  const segments = [];
+  for (let i = 0; i < src.length; ) {
+    if (src.startsWith("न्", i)) {
+      segments.push(NASAL_FAMILY_UNITS);
+      i += 2;
+      continue;
+    }
+    if (src.startsWith("म्", i)) {
+      segments.push(NASAL_FAMILY_UNITS);
+      i += 2;
+      continue;
+    }
+    const ch = src[i];
+    if (ch === "ं" || ch === "ँ" || ch === "न" || ch === "म") {
+      segments.push(NASAL_FAMILY_UNITS);
+      i += 1;
+      continue;
+    }
+    segments.push([ch]);
+    i += 1;
+  }
+
+  const out = new Set();
+  const rec = (idx, curr) => {
+    if (idx >= segments.length) {
+      out.add(curr);
+      return;
+    }
+    for (const alt of segments[idx]) rec(idx + 1, curr + alt);
+  };
+  rec(0, "");
+  return out.size ? out : new Set([src]);
+}
+
+function expandHalfRHead(head) {
+  const start = String(head || "");
+  if (!start) return new Set([""]);
+
+  const out = new Set([start]);
+  const queue = [start];
+  const maxLen = Math.max(8, start.length * 2);
+
+  const push = (s) => {
+    const v = String(s || "");
+    if (!v) return;
+    if (v.length > maxLen) return;
+    if (out.has(v)) return;
+    out.add(v);
+    queue.push(v);
+  };
+
+  while (queue.length) {
+    const cur = queue.shift();
+    if (!cur) continue;
+
+    // Drop reph form: र् + consonant -> consonant
+    for (let i = 0; i + 2 < cur.length; i++) {
+      if (cur[i] === "र" && cur[i + 1] === HALANT_CHAR && isDevConsonantChar(cur[i + 2])) {
+        push(cur.slice(0, i) + cur.slice(i + 2));
+      }
+    }
+
+    // Drop rakar form: consonant + ्र -> consonant
+    for (let i = 0; i + 2 < cur.length; i++) {
+      if (isDevConsonantChar(cur[i]) && cur[i + 1] === HALANT_CHAR && cur[i + 2] === "र") {
+        push(cur.slice(0, i + 1) + cur.slice(i + 3));
+      }
+    }
+
+    // Insert half-r options after consonants to capture decomposed/non-ligature forms.
+    for (let i = 0; i < cur.length; i++) {
+      const ch = cur[i];
+      if (!isDevConsonantChar(ch) || ch === "र") continue;
+
+      const n1 = cur[i + 1] || "";
+      const n2 = cur[i + 2] || "";
+      const hasRakar = n1 === HALANT_CHAR && n2 === "र";
+      const hasRephTail = n1 === "र" && n2 === HALANT_CHAR;
+
+      if (!hasRakar) push(cur.slice(0, i + 1) + HALANT_CHAR + "र" + cur.slice(i + 1));
+      if (!hasRephTail) push(cur.slice(0, i + 1) + "र" + HALANT_CHAR + cur.slice(i + 1));
+    }
+  }
+
+  return out;
+}
+
+function expandTokenForIndexKeys(token) {
+  const compact = String(token || "").replace(/\s+/g, "");
+  if (!compact) return [];
+  if (!hasDevanagariChars(compact)) return [compact];
+
+  const head = compact.slice(0, PREFIX_EXPAND_WINDOW);
+  const tail = compact.slice(PREFIX_EXPAND_WINDOW);
+
+  const out = new Set();
+  const nasal = expandNasalFamilyHead(head);
+  for (const n of nasal) {
+    const halfR = expandHalfRHead(n);
+    for (const h of halfR) out.add(h + tail);
+  }
+  if (!out.size) out.add(compact);
+  return Array.from(out);
 }
 
 // ---------------- Join variants (query side too) ----------------
@@ -2891,13 +3024,28 @@ async function queryIndexCandidatesBatchForAc(acNo, querySpecs) {
 }
 
 function buildKeysFromTokens(tokens, prefixLen) {
-  const keys = tokens.map((t) => prefixN(t, prefixLen)).filter(Boolean);
-  const joins = joinVariantsTokens(tokens);
-  for (const j of joins) {
-    const k = prefixN(j, prefixLen);
-    if (k) keys.push(k);
+  const forms = new Set();
+  for (const t of tokens || []) {
+    const s = String(t || "").trim();
+    if (s) forms.add(s);
   }
-  return Array.from(new Set(keys));
+
+  const joins = joinVariantsTokens(Array.from(forms));
+  for (const j of joins) {
+    const s = String(j || "").trim();
+    if (s) forms.add(s);
+  }
+
+  const keys = new Set();
+  for (const form of forms) {
+    const expanded = expandTokenForIndexKeys(form);
+    for (const v of expanded) {
+      const k = prefixN(v, prefixLen);
+      if (k) keys.add(k);
+    }
+  }
+
+  return Array.from(keys);
 }
 
 async function getCandidatesForQueryForAc(acNo, q, scope, exactOn) {

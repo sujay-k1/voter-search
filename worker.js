@@ -135,6 +135,8 @@ const PHONETIC = [
   ["व्व", "व"],
   ["स्स", "स"],
   ["श्श", "श"],
+  ["न्", "म्", "न", "म"],
+  ["क्रि", "कृ", "क्री"],
 ];
 
 /* =====================
@@ -168,10 +170,26 @@ function removeMatras(s) {
   return out;
 }
 
+const DEV_JOIN_CTRL_RE = /[\u200C\u200D]/g;
+const DEV_CONSONANT_RE = /[क-हक़-य़]/;
+const HALANT_CHAR = "\u094D";
+
+function isDevConsonantChar(ch) {
+  return DEV_CONSONANT_RE.test(String(ch || ""));
+}
+
+function normalizeSearchComposition(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(DEV_JOIN_CTRL_RE, "")
+    .replace(/\u094D[\s\u00A0]+/g, "\u094D")
+    .replace(/[\s\u00A0]+\u094D/g, "\u094D");
+}
+
 function normName(s) {
   if (!s) return "";
   // keep Devanagari as-is; just normalize whitespace + remove common punctuation noise
-  return String(s)
+  return normalizeSearchComposition(String(s))
     .replace(/[\u00A0\u200B]/g, " ")
     .replace(/[.,;:!?'"(){}\[\]<>|\\/`~^*+=—–_-]/g, " ")
     .replace(/\s+/g, " ")
@@ -182,6 +200,100 @@ function splitWords(s) {
   const t = normName(s);
   if (!t) return [];
   return t.split(" ").filter(Boolean);
+}
+
+function canonicalizeHalfRForms(s) {
+  const src = String(s || "");
+  if (!src) return "";
+
+  let out = "";
+  for (let i = 0; i < src.length; ) {
+    const ch = src[i];
+    const n1 = src[i + 1] || "";
+    const n2 = src[i + 2] || "";
+
+    // reph: र् + consonant => treat half-r as optional
+    if (ch === "र" && n1 === HALANT_CHAR && isDevConsonantChar(n2)) {
+      i += 2;
+      continue;
+    }
+
+    // rakar: consonant + ्र => treat half-r as optional
+    if (isDevConsonantChar(ch) && n1 === HALANT_CHAR && n2 === "र") {
+      out += ch;
+      i += 3;
+      continue;
+    }
+
+    // decomposed trailing half-r: consonant + र् => optional
+    if (isDevConsonantChar(ch) && n1 === "र" && n2 === HALANT_CHAR) {
+      out += ch;
+      i += 3;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+
+  return out;
+}
+
+function canonicalizeNasalFamily(s) {
+  const src = String(s || "");
+  if (!src) return "";
+
+  let out = "";
+  for (let i = 0; i < src.length; ) {
+    if (src.startsWith("न्", i) || src.startsWith("म्", i)) {
+      out += "न";
+      i += 2;
+      continue;
+    }
+    const ch = src[i];
+    if (ch === "ं" || ch === "ँ" || ch === "न" || ch === "म") {
+      out += "न";
+      i += 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+function canonicalizeNameForBroadEquivalence(s) {
+  const base = normName(s);
+  if (!base) return "";
+  let out = canonicalizeHalfRForms(base);
+  out = canonicalizeNasalFamily(out);
+  out = out.replace(/\s+/g, " ").trim();
+  return out;
+}
+
+const NAME_WORDS_CACHE = new Map();
+const NAME_WORDS_CANON_CACHE = new Map();
+
+function getParsedWordsForName(name) {
+  const normalized = normName(name);
+  if (!normalized) return [];
+  const cached = NAME_WORDS_CACHE.get(normalized);
+  if (cached) return cached;
+
+  const words = normalized.split(" ").filter(Boolean).map(parseWord);
+  NAME_WORDS_CACHE.set(normalized, words);
+  return words;
+}
+
+function getCanonicalParsedWordsForName(name) {
+  const normalized = canonicalizeNameForBroadEquivalence(name);
+  if (!normalized) return [];
+  const cached = NAME_WORDS_CANON_CACHE.get(normalized);
+  if (cached) return cached;
+
+  const words = normalized.split(" ").filter(Boolean).map(parseWord);
+  NAME_WORDS_CANON_CACHE.set(normalized, words);
+  return words;
 }
 
 /* =====================
@@ -856,24 +968,58 @@ function matchNameFuzzy(qWordsParsed, candWordsParsed) {
   return best;
 }
 
-function scoreCandidateName(queryWordsParsed, candName, exactOn) {
-  const cWords = splitWords(candName).map(parseWord);
-  if (cWords.length === 0) return null;
+function addLane(match, lane, label) {
+  if (!match) return null;
+  return {
+    ...match,
+    key: [lane, ...(match.key || [])],
+    explain: `${label}; ${match.explain}`,
+  };
+}
 
-  if (exactOn) {
-    const ex = matchNameExact(queryWordsParsed, cWords);
-    if (!ex) return null;
-    return { ...ex, matchMode: "EXACT" };
+function scoreCandidateName(queryWordsParsed, queryWordsParsedCanon, candName, exactOn) {
+  const literalWords = getParsedWordsForName(candName);
+  if (literalWords.length === 0) return null;
+
+  const haveCanonQuery = Array.isArray(queryWordsParsedCanon) && queryWordsParsedCanon.length > 0;
+  let canonWords = null;
+  let best = null;
+
+  const maybePick = (m) => {
+    if (!m) return;
+    if (!best || compareRankKey(m.key, best.key) < 0) best = m;
+  };
+
+  // Lane 0: literal exact
+  maybePick(addLane(matchNameExact(queryWordsParsed, literalWords), 0, "LITERAL"));
+
+  // Lane 1: canonical exact (broad equivalence)
+  if (haveCanonQuery) {
+    canonWords = getCanonicalParsedWordsForName(candName);
+    if (canonWords.length) {
+      maybePick(addLane(matchNameExact(queryWordsParsedCanon, canonWords), 1, "CANONICAL"));
+    }
   }
 
-  // typing-mistakes mode: exact results included naturally because fuzzy DP can do pure matches;
-  // but we still compute exact first as a fast path.
-  const ex = matchNameExact(queryWordsParsed, cWords);
-  if (ex) return { ...ex, matchMode: "EXACT" };
+  if (exactOn) {
+    if (!best) return null;
+    return { ...best, matchMode: "EXACT" };
+  }
 
-  const fu = matchNameFuzzy(queryWordsParsed, cWords);
-  if (!fu) return null;
-  return { ...fu, matchMode: "FUZZY" };
+  // Lane 2: literal fuzzy
+  maybePick(addLane(matchNameFuzzy(queryWordsParsed, literalWords), 2, "LITERAL_FUZZY"));
+
+  // Lane 3: canonical fuzzy (broad equivalence + typo tolerance)
+  if (haveCanonQuery) {
+    if (!canonWords) canonWords = getCanonicalParsedWordsForName(candName);
+    if (canonWords.length) {
+      maybePick(addLane(matchNameFuzzy(queryWordsParsedCanon, canonWords), 3, "CANONICAL_FUZZY"));
+    }
+  }
+
+  if (!best) return null;
+  const lane = best.key[0] ?? 9;
+  return { ...best, matchMode: lane <= 1 ? "EXACT" : "FUZZY" };
 }
 
 /* =====================
@@ -885,6 +1031,8 @@ function resetState() {
   STATE = {
     query: "",
     queryWords: [],
+    queryCanonical: "",
+    queryWordsCanonical: [],
     exactOn: true,
     scope: "voter",
     total: 0,
@@ -903,6 +1051,7 @@ self.onmessage = (ev) => {
     if (type === "start") {
       resetState();
       STATE.query = normName(msg.query || "");
+      STATE.queryCanonical = canonicalizeNameForBroadEquivalence(STATE.query);
       STATE.exactOn = !!msg.exactOn;
       STATE.scope = msg.scope || "voter";
       STATE.total = msg.total || 0;
@@ -910,6 +1059,7 @@ self.onmessage = (ev) => {
 
       const qWords = splitWords(STATE.query).map(parseWord);
       STATE.queryWords = qWords;
+      STATE.queryWordsCanonical = splitWords(STATE.queryCanonical).map(parseWord);
 
       return;
     }
@@ -924,14 +1074,14 @@ self.onmessage = (ev) => {
         let bestField = null;
 
         if (STATE.scope === "voter" || STATE.scope === "anywhere") {
-          const m = scoreCandidateName(STATE.queryWords, voter, STATE.exactOn);
+          const m = scoreCandidateName(STATE.queryWords, STATE.queryWordsCanonical, voter, STATE.exactOn);
           if (m) {
             best = m;
             bestField = "voter";
           }
         }
         if (STATE.scope === "relative" || STATE.scope === "anywhere") {
-          const m = scoreCandidateName(STATE.queryWords, rel, STATE.exactOn);
+          const m = scoreCandidateName(STATE.queryWords, STATE.queryWordsCanonical, rel, STATE.exactOn);
           if (m && (!best || compareRankKey(m.key, best.key) < 0)) {
             best = m;
             bestField = "relative";
