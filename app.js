@@ -467,7 +467,7 @@ function cmpRelevance(a, b) {
 const TRANSLIT = {
   endpoint: "https://inputtools.google.com/request",
   itc: "mr-t-i0-und",
-  num: 5,
+  num: 10,
   debounceMs: 120,
 };
 const MIC_AUTO_STOP_MS = 6000;
