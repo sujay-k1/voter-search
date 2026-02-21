@@ -466,7 +466,7 @@ function cmpRelevance(a, b) {
 // ---------------- Transliteration + Voice (NEW, non-breaking) ----------------
 const TRANSLIT = {
   endpoint: "https://inputtools.google.com/request",
-  itc: "hi-t-i0-und",
+  itc: "mr-t-i0-und",
   num: 10,
   debounceMs: 120,
 };
