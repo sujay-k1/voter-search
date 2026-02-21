@@ -55,12 +55,20 @@ function isRetryableFetchError(e) {
   );
 }
 
-async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayMs = 200 } = {}) {
+async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayMs = 200, signal = null } = {}) {
   let attempt = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     attempt++;
     const ctrl = new AbortController();
+    let externalAbortHandler = null;
+    if (signal) {
+      if (signal.aborted) ctrl.abort(signal.reason || "aborted");
+      else {
+        externalAbortHandler = () => ctrl.abort(signal.reason || "aborted");
+        signal.addEventListener("abort", externalAbortHandler, { once: true });
+      }
+    }
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const resp = await fetch(url, {
@@ -90,6 +98,10 @@ async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayM
       }
       return json;
     } catch (e) {
+      // External caller-abort must not retry.
+      if (signal?.aborted) {
+        throw makeUiError("SEARCH_ABORTED", "Search cancelled");
+      }
       if (retries > 0 && isRetryableFetchError(e)) {
         retries--;
         await sleep(retryDelayMs);
@@ -99,6 +111,11 @@ async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayM
       throw e;
     } finally {
       clearTimeout(t);
+      if (signal && externalAbortHandler) {
+        try {
+          signal.removeEventListener("abort", externalAbortHandler);
+        } catch {}
+      }
     }
   }
 }
@@ -219,6 +236,7 @@ let relativeCandidatesCache = new Map(); // Map(cacheKey -> Set(row_id))
 let activeSearchToken = 0;
 let runSearchInFlight = false;
 let runSearchAgainRequested = false;
+let activeSearchAbortController = null;
 
 // Gender domain discovery per loaded AC (used only when filtering within that AC)
 let genderBuckets = { male: new Set(), female: new Set(), other: new Set() };
@@ -1499,11 +1517,37 @@ function hideLoader() {
   setBar(0);
 }
 
-function cancelInFlightSearch() {
+function isSearchCancelledError(e) {
+  return String(e?.code || "") === "SEARCH_ABORTED";
+}
+
+function getActiveSearchSignal() {
+  return activeSearchAbortController?.signal || null;
+}
+
+function withActiveSearchSignal(opts = {}) {
+  const signal = getActiveSearchSignal();
+  return signal ? { ...opts, signal } : { ...opts };
+}
+
+function abortActiveWorkerRequest() {
+  if (!pendingResolve && !pendingReject) return;
+  resetWorkerAfterFailure();
+  settleWorkerRequest({ error: makeUiError("SEARCH_ABORTED", "Search cancelled") });
+}
+
+function cancelInFlightSearch({ preserveQueued = false, hideUi = true } = {}) {
   // Invalidate ongoing async search pipelines so stale completions are ignored.
   activeSearchToken++;
-  runSearchAgainRequested = false;
-  hideLoader();
+  if (!preserveQueued) runSearchAgainRequested = false;
+
+  try {
+    activeSearchAbortController?.abort();
+  } catch {}
+  activeSearchAbortController = null;
+  abortActiveWorkerRequest();
+
+  if (hideUi) hideLoader();
 }
 
 function showLoader(stageMsg = "") {
@@ -3012,7 +3056,7 @@ async function queryIndexCandidatesBatchForAc(acNo, querySpecs) {
       ret: "ids",
       queries: querySpecs.map((q) => ({ table: q.table, keys: q.keys })),
     },
-    { timeoutMs: 45000, retries: 1 }
+    withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
   );
 
   const ids = Array.isArray(resp?.ids) ? resp.ids : [];
@@ -3132,7 +3176,7 @@ async function fetchScoreRowsByIdsForAc(acNo, rowIds) {
           kind: "score",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       for (const r of resp?.rows || []) {
@@ -3320,7 +3364,7 @@ async function fetchDisplayRowsByIdsForAc(acNo, rowIds) {
           kind: "display",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       const rows = resp?.rows || [];
@@ -3395,7 +3439,7 @@ async function ensureAgeMapLoaded(keysToLoad) {
           kind: "age",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       for (const r of resp?.rows || []) {
@@ -3512,7 +3556,7 @@ async function computeRowIdSetByGenderAndAgeForAc(acNo, rowIdsInThisAc) {
           kind: "gender_age",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       for (const r of resp?.rows || []) {
@@ -3832,55 +3876,71 @@ async function runSearchCore() {
 
   // Cancel/ignore older searches.
   const myToken = ++activeSearchToken;
-
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
-  masterRankedAll = [];
-  lastSearchCtx = { districtSlug, query: qStrict, scope: scopeForWorker, exactOn, searchedACs: new Set() };
-
-  let mergedResult;
-  try {
-    mergedResult = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
-  } finally {
-    setBar(100);
-    setResultsProgressVisible(false);
-    setProgressStage("");
-    setProgressSub("");
-  }
-  if (mergedResult === null) return;
-  const merged = mergedResult?.merged || [];
-  const failedAcs = Array.isArray(mergedResult?.failedAcs) ? mergedResult.failedAcs : [];
-
-  // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
-  masterRankedAll = merged.sort(cmpRelevance);
-  lastSearchCtx.searchedACs = new Set(acList);
-
-  rankedByRelevance = masterRankedAll.slice(); // current view = searched ACs
-
-  await applyFiltersThenSortThenRender();
-  setStatus(t("status_ready_results", { n: rankedView.length }));
-  if (failedAcs.length) {
-    setMeta("");
-    showOkayRetryPopup(
-      t("status_partial_results_acs", {
-        n: failedAcs.length,
-        acs: failedAcs.join(", "),
-      })
-    );
-  } else {
-    setMeta("");
-  }
-
-  if (DEBUG && rankedView.length) {
-    console.log("DEBUG top 20:");
-    for (const x of rankedView.slice(0, 20)) {
-      console.log(x.key, x.sortKey, x.explain);
+  const myAbortController = new AbortController();
+  activeSearchAbortController = myAbortController;
+  const ensureSearchStillActive = () => {
+    if (myToken !== activeSearchToken || myAbortController.signal.aborted) {
+      throw makeUiError("SEARCH_ABORTED", "Search cancelled");
     }
+  };
+
+  try {
+    const districtSlug = slugifyDistrictId(currentDistrictId || "");
+    masterRankedAll = [];
+    lastSearchCtx = { districtSlug, query: qStrict, scope: scopeForWorker, exactOn, searchedACs: new Set() };
+
+    let mergedResult;
+    try {
+      mergedResult = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
+    } finally {
+      if (myToken === activeSearchToken) {
+        setBar(100);
+        setResultsProgressVisible(false);
+        setProgressStage("");
+        setProgressSub("");
+      }
+    }
+    ensureSearchStillActive();
+    if (mergedResult === null) return;
+    const merged = mergedResult?.merged || [];
+    const failedAcs = Array.isArray(mergedResult?.failedAcs) ? mergedResult.failedAcs : [];
+
+    // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
+    masterRankedAll = merged.sort(cmpRelevance);
+    lastSearchCtx.searchedACs = new Set(acList);
+
+    rankedByRelevance = masterRankedAll.slice(); // current view = searched ACs
+
+    await applyFiltersThenSortThenRender();
+    ensureSearchStillActive();
+    setStatus(t("status_ready_results", { n: rankedView.length }));
+    if (failedAcs.length) {
+      setMeta("");
+      showOkayRetryPopup(
+        t("status_partial_results_acs", {
+          n: failedAcs.length,
+          acs: failedAcs.join(", "),
+        })
+      );
+    } else {
+      setMeta("");
+    }
+
+    if (DEBUG && rankedView.length) {
+      console.log("DEBUG top 20:");
+      for (const x of rankedView.slice(0, 20)) {
+        console.log(x.key, x.sortKey, x.explain);
+      }
+    }
+  } finally {
+    if (activeSearchAbortController === myAbortController) activeSearchAbortController = null;
   }
 }
 
 async function runSearch() {
   if (runSearchInFlight) {
     runSearchAgainRequested = true;
+    cancelInFlightSearch({ preserveQueued: true, hideUi: false });
     showBottomToast(t("status_search_queued"));
     return;
   }
@@ -3889,9 +3949,19 @@ async function runSearch() {
   try {
     do {
       runSearchAgainRequested = false;
-      await runSearchCore();
+      try {
+        await runSearchCore();
+      } catch (e) {
+        if (isSearchCancelledError(e)) {
+          // If a newer search was queued, continue immediately with the latest one.
+          if (runSearchAgainRequested) continue;
+          return;
+        }
+        throw e;
+      }
     } while (runSearchAgainRequested);
   } catch (e) {
+    if (isSearchCancelledError(e)) return;
     console.error("runSearch failed:", e);
     hideLoader();
     setMeta("");
@@ -4105,6 +4175,7 @@ function refreshOnStateChange(reason) {
     refreshTimer = null;
     if (runSearchInFlight) {
       runSearchAgainRequested = true;
+      cancelInFlightSearch({ preserveQueued: true, hideUi: false });
       showBottomToast(t("status_search_queued"));
       return;
     }
