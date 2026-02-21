@@ -55,12 +55,20 @@ function isRetryableFetchError(e) {
   );
 }
 
-async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayMs = 200 } = {}) {
+async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayMs = 200, signal = null } = {}) {
   let attempt = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     attempt++;
     const ctrl = new AbortController();
+    let externalAbortHandler = null;
+    if (signal) {
+      if (signal.aborted) ctrl.abort(signal.reason || "aborted");
+      else {
+        externalAbortHandler = () => ctrl.abort(signal.reason || "aborted");
+        signal.addEventListener("abort", externalAbortHandler, { once: true });
+      }
+    }
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const resp = await fetch(url, {
@@ -90,6 +98,10 @@ async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayM
       }
       return json;
     } catch (e) {
+      // External caller-abort must not retry.
+      if (signal?.aborted) {
+        throw makeUiError("SEARCH_ABORTED", "Search cancelled");
+      }
       if (retries > 0 && isRetryableFetchError(e)) {
         retries--;
         await sleep(retryDelayMs);
@@ -99,6 +111,11 @@ async function postJson(url, data, { timeoutMs = 60000, retries = 0, retryDelayM
       throw e;
     } finally {
       clearTimeout(t);
+      if (signal && externalAbortHandler) {
+        try {
+          signal.removeEventListener("abort", externalAbortHandler);
+        } catch {}
+      }
     }
   }
 }
@@ -219,6 +236,7 @@ let relativeCandidatesCache = new Map(); // Map(cacheKey -> Set(row_id))
 let activeSearchToken = 0;
 let runSearchInFlight = false;
 let runSearchAgainRequested = false;
+let activeSearchAbortController = null;
 
 // Gender domain discovery per loaded AC (used only when filtering within that AC)
 let genderBuckets = { male: new Set(), female: new Set(), other: new Set() };
@@ -449,10 +467,10 @@ function cmpRelevance(a, b) {
 const TRANSLIT = {
   endpoint: "https://inputtools.google.com/request",
   itc: "mr-t-i0-und",
-  num: 5,
+  num: 10,
   debounceMs: 120,
 };
-const MIC_AUTO_STOP_MS = 4000;
+const MIC_AUTO_STOP_MS = 6000;
 
 function isDevanagariChar(ch) {
   if (!ch) return false;
@@ -542,9 +560,11 @@ function ensureTranslitPopoverSkeleton(popEl) {
 function openTranslitPopover(popEl, anchorWrapEl) {
   if (!popEl) return;
 
-  // keep same style and anchoring behavior as other popovers
+  // Transliteration suggestions are left-aligned to the input field only.
   popEl.style.display = "block";
   popEl.setAttribute("aria-hidden", "false");
+  popEl.style.left = "-8px";
+  popEl.style.right = "auto";
 
   // ensure width matches input wrap
   if (anchorWrapEl) {
@@ -797,7 +817,7 @@ function attachNameEnhancements({
       showPrimary: false,
       secondaryLabel: denied ? t("cancel") : "",
       onSecondary: denied ? () => closeMessagePopup() : null,
-      topOffsetVh: 20,
+      topOffsetVh: 10,
       overlayClass: denied ? "" : "micPermissionGuideSolidOverlay",
     });
   }
@@ -1275,6 +1295,8 @@ function applyTranslationsToDOM() {
     if (acPopover && acPopover.style.display !== "none") renderAcPopover();
   } catch {}
 
+  if (activeRowDetail) renderRowDetailModal();
+
   if (pageSizeBtn) {
     const label = document.querySelector("[data-i18n='page_size_label']");
     if (label) label.textContent = t("page_size_label");
@@ -1393,6 +1415,16 @@ const messageModalText = $("messageModalText");
 const messageModalActions = $("messageModalActions");
 const messageModalSecondaryBtn = $("messageModalSecondaryBtn");
 const messageModalPrimaryBtn = $("messageModalPrimaryBtn");
+const rowDetailOverlay = $("rowDetailOverlay");
+const rowDetailCloseBtn = $("rowDetailCloseBtn");
+const rowDetailName = $("rowDetailName");
+const rowDetailAgeGender = $("rowDetailAgeGender");
+const rowDetailRelation = $("rowDetailRelation");
+const rowDetailRelativeName = $("rowDetailRelativeName");
+const rowDetailAcValue = $("rowDetailAcValue");
+const rowDetailPartValue = $("rowDetailPartValue");
+const rowDetailSerialValue = $("rowDetailSerialValue");
+const rowDetailCta = $("rowDetailCta");
 const statusToast = $("statusToast");
 const statusToastText = $("statusToastText");
 const statusToastCloseBtn = $("statusToastCloseBtn");
@@ -1459,6 +1491,7 @@ let resultsToastRaf = null;
 let statusToastTimer = null;
 let messageModalPrimaryHandler = null;
 let messageModalSecondaryHandler = null;
+let activeRowDetail = null;
 
 function setStatus(msg) {
   const text = String(msg ?? "").trim();
@@ -1484,11 +1517,37 @@ function hideLoader() {
   setBar(0);
 }
 
-function cancelInFlightSearch() {
+function isSearchCancelledError(e) {
+  return String(e?.code || "") === "SEARCH_ABORTED";
+}
+
+function getActiveSearchSignal() {
+  return activeSearchAbortController?.signal || null;
+}
+
+function withActiveSearchSignal(opts = {}) {
+  const signal = getActiveSearchSignal();
+  return signal ? { ...opts, signal } : { ...opts };
+}
+
+function abortActiveWorkerRequest() {
+  if (!pendingResolve && !pendingReject) return;
+  resetWorkerAfterFailure();
+  settleWorkerRequest({ error: makeUiError("SEARCH_ABORTED", "Search cancelled") });
+}
+
+function cancelInFlightSearch({ preserveQueued = false, hideUi = true } = {}) {
   // Invalidate ongoing async search pipelines so stale completions are ignored.
   activeSearchToken++;
-  runSearchAgainRequested = false;
-  hideLoader();
+  if (!preserveQueued) runSearchAgainRequested = false;
+
+  try {
+    activeSearchAbortController?.abort();
+  } catch {}
+  activeSearchAbortController = null;
+  abortActiveWorkerRequest();
+
+  if (hideUi) hideLoader();
 }
 
 function showLoader(stageMsg = "") {
@@ -1526,6 +1585,77 @@ function setBar(pct) {
 function setMeta(msg) {
   // Inline meta surface is retired by design.
   void msg;
+}
+
+function rowDetailDisplayValue(v) {
+  const s = formatCell(v).trim();
+  return s || "—";
+}
+
+function composeAgeGenderText(row) {
+  const age = formatCell(row?.["Age"]).trim();
+  const gender = formatCell(row?.["Gender"]).trim();
+  if (age && gender) return `${age}, ${gender}`;
+  return age || gender || "—";
+}
+
+function getAcDisplayForDetail(row) {
+  const rawAc = Number(row?.["AC No"]);
+  if (!Number.isFinite(rawAc)) return rowDetailDisplayValue(row?.["AC No"]);
+  const label = getAcOptionLabel(rawAc);
+  return String(label || rawAc);
+}
+
+function renderRowDetailModal() {
+  if (!activeRowDetail) return;
+  const row = activeRowDetail.row;
+
+  if (rowDetailName) rowDetailName.textContent = rowDetailDisplayValue(row?.["Voter Name"]);
+  if (rowDetailAgeGender) rowDetailAgeGender.textContent = composeAgeGenderText(row);
+  if (rowDetailRelation) rowDetailRelation.textContent = rowDetailDisplayValue(row?.["Relation"]);
+  if (rowDetailRelativeName) rowDetailRelativeName.textContent = rowDetailDisplayValue(row?.["Relative Name"]);
+  if (rowDetailAcValue) rowDetailAcValue.textContent = getAcDisplayForDetail(row);
+  if (rowDetailPartValue) rowDetailPartValue.textContent = rowDetailDisplayValue(row?.["Part No"]);
+  if (rowDetailSerialValue) rowDetailSerialValue.textContent = rowDetailDisplayValue(row?.["Serial No"]);
+
+  const page = rowDetailDisplayValue(row?.["Page No"]);
+  if (rowDetailCta) {
+    rowDetailCta.textContent = t("row_detail_cta_validate", { page });
+    if (activeRowDetail.pdfUrl) {
+      rowDetailCta.href = activeRowDetail.pdfUrl;
+      rowDetailCta.classList.remove("isDisabled");
+      rowDetailCta.setAttribute("aria-disabled", "false");
+      rowDetailCta.setAttribute("tabindex", "0");
+    } else {
+      rowDetailCta.removeAttribute("href");
+      rowDetailCta.classList.add("isDisabled");
+      rowDetailCta.setAttribute("aria-disabled", "true");
+      rowDetailCta.setAttribute("tabindex", "-1");
+    }
+  }
+}
+
+function closeRowDetailModal() {
+  if (!rowDetailOverlay) return;
+  rowDetailOverlay.style.display = "none";
+  rowDetailOverlay.setAttribute("aria-hidden", "true");
+  activeRowDetail = null;
+}
+
+function openRowDetailModalFromKey(key) {
+  const row = displayCache.get(String(key || ""));
+  if (!row) return;
+
+  activeRowDetail = {
+    key: String(key),
+    row,
+    pdfUrl: buildPdfUrl(row),
+  };
+  renderRowDetailModal();
+
+  if (!rowDetailOverlay) return;
+  rowDetailOverlay.style.display = "flex";
+  rowDetailOverlay.setAttribute("aria-hidden", "false");
 }
 
 function hideBottomToast() {
@@ -1686,6 +1816,7 @@ function syncStatusWrapVisibility() {
 
 function showLanding() {
   clearLandingScrollRestoreHandlers();
+  closeRowDetailModal();
   landingSection.style.display = "flex";
   resultsSection.style.display = "none";
   if (announcementSection) announcementSection.style.display = "none";
@@ -1696,6 +1827,7 @@ function showLanding() {
 
 function showResults() {
   clearLandingScrollRestoreHandlers();
+  closeRowDetailModal();
   landingSection.style.display = "none";
   resultsSection.style.display = "block";
   if (announcementSection) announcementSection.style.display = "none";
@@ -1709,6 +1841,7 @@ function showResults() {
 
 function showAnnouncementPage() {
   clearLandingScrollRestoreHandlers();
+  closeRowDetailModal();
   landingSection.style.display = "none";
   resultsSection.style.display = "none";
   if (announcementSection) announcementSection.style.display = "block";
@@ -1929,6 +2062,15 @@ function scrollLandingInputToTopGap(inputEl, gapPx = LANDING_INPUT_TOP_GAP_PX) {
     baselineViewportH,
   });
 
+  window.scrollTo({ top: targetScrollY, behavior: "smooth" });
+}
+
+function scrollElementToTopGap(inputEl, gapPx = LANDING_INPUT_TOP_GAP_PX) {
+  if (!inputEl) return;
+  const prevScrollY = window.scrollY || window.pageYOffset || 0;
+  const rect = inputEl.getBoundingClientRect();
+  const targetScrollY = Math.max(0, Math.round(prevScrollY + rect.top - gapPx));
+  if (Math.abs(targetScrollY - prevScrollY) < 2) return;
   window.scrollTo({ top: targetScrollY, behavior: "smooth" });
 }
 
@@ -2196,6 +2338,14 @@ function refreshChipLabels() {
   chipAnywhere.textContent = t("chip_anywhere_plain");
 }
 
+function canUseMoreFilters(scope = searchScope) {
+  return scope === SCOPE.VOTER || scope === SCOPE.RELATIVE || scope === SCOPE.ANYWHERE;
+}
+
+function canUseRelativeNameFilter(scope = searchScope) {
+  return scope === SCOPE.VOTER;
+}
+
 function setActiveChip(scope) {
   searchScope = scope;
 
@@ -2205,20 +2355,41 @@ function setActiveChip(scope) {
 
   refreshChipLabels();
 
-  const enabled = scope === SCOPE.VOTER;
-  moreFiltersBtn.disabled = !enabled;
-
-  if (!enabled) {
-    closeFiltersPopover();
-    clearFilters();
+  if (!canUseRelativeNameFilter(scope)) {
+    filters.relativeName = "";
   }
+  updateMoreFiltersEnabled();
+  renderFiltersPopoverRoot();
 
   refreshOnStateChange("scope");
 }
 
 // ---------------- Strict normalization ----------------
+const DEV_JOIN_CTRL_RE = /[\u200C\u200D]/g;
+const DEV_CONSONANT_RE = /[क-हक़-य़]/;
+const HALANT_CHAR = "्";
+const PREFIX_EXPAND_WINDOW = 5;
+const NASAL_FAMILY_UNITS = ["न्", "म्", "ं", "ँ", "न", "म"];
+
+function normalizeSearchComposition(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(DEV_JOIN_CTRL_RE, "")
+    .replace(/\u094D[\s\u00A0]+/g, "\u094D")
+    .replace(/[\s\u00A0]+\u094D/g, "\u094D");
+}
+
+function hasDevanagariChars(s) {
+  return /[\u0900-\u097F]/.test(String(s || ""));
+}
+
+function isDevConsonantChar(ch) {
+  return DEV_CONSONANT_RE.test(String(ch || ""));
+}
+
 function norm(s) {
   if (s == null) return "";
+  s = normalizeSearchComposition(s);
   s = String(s).replace(/\u00a0/g, " ").trim();
   s = s.replace(/[.,;:|/\\()[\]{}<>"'~!@#$%^&*_+=?-]/g, " ");
   s = s.replace(/\s+/g, " ").trim();
@@ -2342,6 +2513,116 @@ function tokenizeLoose(s) {
   s = normLoose(s);
   if (!s) return [];
   return s.split(" ").filter(Boolean);
+}
+
+function expandNasalFamilyHead(head) {
+  const src = String(head || "");
+  if (!src) return new Set([""]);
+  if (!(src.includes("न्") || src.includes("म्") || /[ंँनम]/.test(src))) return new Set([src]);
+
+  const segments = [];
+  for (let i = 0; i < src.length; ) {
+    if (src.startsWith("न्", i)) {
+      segments.push(NASAL_FAMILY_UNITS);
+      i += 2;
+      continue;
+    }
+    if (src.startsWith("म्", i)) {
+      segments.push(NASAL_FAMILY_UNITS);
+      i += 2;
+      continue;
+    }
+    const ch = src[i];
+    if (ch === "ं" || ch === "ँ" || ch === "न" || ch === "म") {
+      segments.push(NASAL_FAMILY_UNITS);
+      i += 1;
+      continue;
+    }
+    segments.push([ch]);
+    i += 1;
+  }
+
+  const out = new Set();
+  const rec = (idx, curr) => {
+    if (idx >= segments.length) {
+      out.add(curr);
+      return;
+    }
+    for (const alt of segments[idx]) rec(idx + 1, curr + alt);
+  };
+  rec(0, "");
+  return out.size ? out : new Set([src]);
+}
+
+function expandHalfRHead(head) {
+  const start = String(head || "");
+  if (!start) return new Set([""]);
+
+  const out = new Set([start]);
+  const queue = [start];
+  const maxLen = Math.max(8, start.length * 2);
+
+  const push = (s) => {
+    const v = String(s || "");
+    if (!v) return;
+    if (v.length > maxLen) return;
+    if (out.has(v)) return;
+    out.add(v);
+    queue.push(v);
+  };
+
+  while (queue.length) {
+    const cur = queue.shift();
+    if (!cur) continue;
+
+    // Drop reph form: र् + consonant -> consonant
+    for (let i = 0; i + 2 < cur.length; i++) {
+      if (cur[i] === "र" && cur[i + 1] === HALANT_CHAR && isDevConsonantChar(cur[i + 2])) {
+        push(cur.slice(0, i) + cur.slice(i + 2));
+      }
+    }
+
+    // Drop rakar form: consonant + ्र -> consonant
+    for (let i = 0; i + 2 < cur.length; i++) {
+      if (isDevConsonantChar(cur[i]) && cur[i + 1] === HALANT_CHAR && cur[i + 2] === "र") {
+        push(cur.slice(0, i + 1) + cur.slice(i + 3));
+      }
+    }
+
+    // Insert half-r options after consonants to capture decomposed/non-ligature forms.
+    for (let i = 0; i < cur.length; i++) {
+      const ch = cur[i];
+      if (!isDevConsonantChar(ch) || ch === "र") continue;
+
+      const n1 = cur[i + 1] || "";
+      const n2 = cur[i + 2] || "";
+      const hasRakar = n1 === HALANT_CHAR && n2 === "र";
+      const hasRephTail = n1 === "र" && n2 === HALANT_CHAR;
+
+      if (!hasRakar) push(cur.slice(0, i + 1) + HALANT_CHAR + "र" + cur.slice(i + 1));
+      if (!hasRephTail) push(cur.slice(0, i + 1) + "र" + HALANT_CHAR + cur.slice(i + 1));
+    }
+  }
+
+  return out;
+}
+
+function expandTokenForIndexKeys(token) {
+  const compact = String(token || "").replace(/\s+/g, "");
+  if (!compact) return [];
+  if (!hasDevanagariChars(compact)) return [compact];
+
+  const head = compact.slice(0, PREFIX_EXPAND_WINDOW);
+  const tail = compact.slice(PREFIX_EXPAND_WINDOW);
+
+  const out = new Set();
+  const nasal = expandNasalFamilyHead(head);
+  for (const n of nasal) {
+    const halfR = expandHalfRHead(n);
+    for (const h of halfR) out.add(h + tail);
+  }
+  if (!out.size) out.add(compact);
+  return Array.from(out);
 }
 
 // ---------------- Join variants (query side too) ----------------
@@ -2775,7 +3056,7 @@ async function queryIndexCandidatesBatchForAc(acNo, querySpecs) {
       ret: "ids",
       queries: querySpecs.map((q) => ({ table: q.table, keys: q.keys })),
     },
-    { timeoutMs: 45000, retries: 1 }
+    withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
   );
 
   const ids = Array.isArray(resp?.ids) ? resp.ids : [];
@@ -2793,13 +3074,28 @@ async function queryIndexCandidatesBatchForAc(acNo, querySpecs) {
 }
 
 function buildKeysFromTokens(tokens, prefixLen) {
-  const keys = tokens.map((t) => prefixN(t, prefixLen)).filter(Boolean);
-  const joins = joinVariantsTokens(tokens);
-  for (const j of joins) {
-    const k = prefixN(j, prefixLen);
-    if (k) keys.push(k);
+  const forms = new Set();
+  for (const t of tokens || []) {
+    const s = String(t || "").trim();
+    if (s) forms.add(s);
   }
-  return Array.from(new Set(keys));
+
+  const joins = joinVariantsTokens(Array.from(forms));
+  for (const j of joins) {
+    const s = String(j || "").trim();
+    if (s) forms.add(s);
+  }
+
+  const keys = new Set();
+  for (const form of forms) {
+    const expanded = expandTokenForIndexKeys(form);
+    for (const v of expanded) {
+      const k = prefixN(v, prefixLen);
+      if (k) keys.add(k);
+    }
+  }
+
+  return Array.from(keys);
 }
 
 async function getCandidatesForQueryForAc(acNo, q, scope, exactOn) {
@@ -2880,7 +3176,7 @@ async function fetchScoreRowsByIdsForAc(acNo, rowIds) {
           kind: "score",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       for (const r of resp?.rows || []) {
@@ -3068,7 +3364,7 @@ async function fetchDisplayRowsByIdsForAc(acNo, rowIds) {
           kind: "display",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       const rows = resp?.rows || [];
@@ -3143,7 +3439,7 @@ async function ensureAgeMapLoaded(keysToLoad) {
           kind: "age",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       for (const r of resp?.rows || []) {
@@ -3215,7 +3511,7 @@ function exactOnFromIncludeTyping() {
 }
 
 function updateMoreFiltersEnabled() {
-  moreFiltersBtn.disabled = !(searchScope === SCOPE.VOTER);
+  moreFiltersBtn.disabled = !canUseMoreFilters(searchScope);
 }
 
 // Compute row-id set by Gender/Age for ONE AC
@@ -3260,7 +3556,7 @@ async function computeRowIdSetByGenderAndAgeForAc(acNo, rowIdsInThisAc) {
           kind: "gender_age",
           row_ids: chunk,
         },
-        { timeoutMs: 45000, retries: 1 }
+        withActiveSearchSignal({ timeoutMs: 45000, retries: 1 })
       );
 
       for (const r of resp?.rows || []) {
@@ -3328,16 +3624,16 @@ async function computeRowIdSetByRelativeFilterForAc(acNo, exactOn) {
 async function applyFiltersThenSortThenRender() {
   filteredBase = rankedByRelevance.slice();
 
-  if (searchScope !== SCOPE.VOTER) {
-    clearFilters();
+  const allowRelativeFilter = canUseRelativeNameFilter(searchScope);
+  if (!allowRelativeFilter && filters.relativeName) {
+    filters.relativeName = "";
   }
 
-  if (searchScope === SCOPE.VOTER && rankedByRelevance.length) {
-    const exactOn = exactOnFromIncludeTyping();
-
-    const hasRel = Boolean(norm(filters.relativeName || ""));
+  if (rankedByRelevance.length) {
+    const hasRel = allowRelativeFilter && Boolean(norm(filters.relativeName || ""));
     const hasGender = filters.gender !== "all";
     const hasAge = filters.age.mode !== "any";
+    const exactOn = hasRel ? exactOnFromIncludeTyping() : true;
 
     if (hasRel || hasGender || hasAge) {
       const byAc = new Map();
@@ -3580,55 +3876,71 @@ async function runSearchCore() {
 
   // Cancel/ignore older searches.
   const myToken = ++activeSearchToken;
-
-  const districtSlug = slugifyDistrictId(currentDistrictId || "");
-  masterRankedAll = [];
-  lastSearchCtx = { districtSlug, query: qStrict, scope: scopeForWorker, exactOn, searchedACs: new Set() };
-
-  let mergedResult;
-  try {
-    mergedResult = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
-  } finally {
-    setBar(100);
-    setResultsProgressVisible(false);
-    setProgressStage("");
-    setProgressSub("");
-  }
-  if (mergedResult === null) return;
-  const merged = mergedResult?.merged || [];
-  const failedAcs = Array.isArray(mergedResult?.failedAcs) ? mergedResult.failedAcs : [];
-
-  // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
-  masterRankedAll = merged.sort(cmpRelevance);
-  lastSearchCtx.searchedACs = new Set(acList);
-
-  rankedByRelevance = masterRankedAll.slice(); // current view = searched ACs
-
-  await applyFiltersThenSortThenRender();
-  setStatus(t("status_ready_results", { n: rankedView.length }));
-  if (failedAcs.length) {
-    setMeta("");
-    showOkayRetryPopup(
-      t("status_partial_results_acs", {
-        n: failedAcs.length,
-        acs: failedAcs.join(", "),
-      })
-    );
-  } else {
-    setMeta("");
-  }
-
-  if (DEBUG && rankedView.length) {
-    console.log("DEBUG top 20:");
-    for (const x of rankedView.slice(0, 20)) {
-      console.log(x.key, x.sortKey, x.explain);
+  const myAbortController = new AbortController();
+  activeSearchAbortController = myAbortController;
+  const ensureSearchStillActive = () => {
+    if (myToken !== activeSearchToken || myAbortController.signal.aborted) {
+      throw makeUiError("SEARCH_ABORTED", "Search cancelled");
     }
+  };
+
+  try {
+    const districtSlug = slugifyDistrictId(currentDistrictId || "");
+    masterRankedAll = [];
+    lastSearchCtx = { districtSlug, query: qStrict, scope: scopeForWorker, exactOn, searchedACs: new Set() };
+
+    let mergedResult;
+    try {
+      mergedResult = await computeMergedForAcs(acList, qStrict, exactOn, scopeForWorker, myToken);
+    } finally {
+      if (myToken === activeSearchToken) {
+        setBar(100);
+        setResultsProgressVisible(false);
+        setProgressStage("");
+        setProgressSub("");
+      }
+    }
+    ensureSearchStillActive();
+    if (mergedResult === null) return;
+    const merged = mergedResult?.merged || [];
+    const failedAcs = Array.isArray(mergedResult?.failedAcs) ? mergedResult.failedAcs : [];
+
+    // GLOBAL merge sort: compare worker rank keys (NOT per-AC arbitrary scores)
+    masterRankedAll = merged.sort(cmpRelevance);
+    lastSearchCtx.searchedACs = new Set(acList);
+
+    rankedByRelevance = masterRankedAll.slice(); // current view = searched ACs
+
+    await applyFiltersThenSortThenRender();
+    ensureSearchStillActive();
+    setStatus(t("status_ready_results", { n: rankedView.length }));
+    if (failedAcs.length) {
+      setMeta("");
+      showOkayRetryPopup(
+        t("status_partial_results_acs", {
+          n: failedAcs.length,
+          acs: failedAcs.join(", "),
+        })
+      );
+    } else {
+      setMeta("");
+    }
+
+    if (DEBUG && rankedView.length) {
+      console.log("DEBUG top 20:");
+      for (const x of rankedView.slice(0, 20)) {
+        console.log(x.key, x.sortKey, x.explain);
+      }
+    }
+  } finally {
+    if (activeSearchAbortController === myAbortController) activeSearchAbortController = null;
   }
 }
 
 async function runSearch() {
   if (runSearchInFlight) {
     runSearchAgainRequested = true;
+    cancelInFlightSearch({ preserveQueued: true, hideUi: false });
     showBottomToast(t("status_search_queued"));
     return;
   }
@@ -3637,9 +3949,19 @@ async function runSearch() {
   try {
     do {
       runSearchAgainRequested = false;
-      await runSearchCore();
+      try {
+        await runSearchCore();
+      } catch (e) {
+        if (isSearchCancelledError(e)) {
+          // If a newer search was queued, continue immediately with the latest one.
+          if (runSearchAgainRequested) continue;
+          return;
+        }
+        throw e;
+      }
     } while (runSearchAgainRequested);
   } catch (e) {
+    if (isSearchCancelledError(e)) return;
     console.error("runSearch failed:", e);
     hideLoader();
     setMeta("");
@@ -3756,7 +4078,7 @@ function renderTable(rows, infoMap) {
           const info = infoMap.get(k);
 
           return `
-          <tr>
+          <tr class="resultRowOpenable" data-row-key="${escapeHtml(k)}">
             ${headerDefs
               .map((h) => {
                 const sticky = h.key === STICKY_COL_KEY ? "stickyCol" : "";
@@ -3853,6 +4175,7 @@ function refreshOnStateChange(reason) {
     refreshTimer = null;
     if (runSearchInFlight) {
       runSearchAgainRequested = true;
+      cancelInFlightSearch({ preserveQueued: true, hideUi: false });
       showBottomToast(t("status_search_queued"));
       return;
     }
@@ -3942,9 +4265,9 @@ function refreshOnStateChange(reason) {
 }
 
 // ---------- Popover helpers ----------
-function popRow({ left, right, chevron = true, selected = false, onClick }) {
+function popRow({ left, right, chevron = true, selected = false, disabled = false, onClick }) {
   const div = document.createElement("div");
-  div.className = `popRow${selected ? " popSelected" : ""}`;
+  div.className = `popRow${selected ? " popSelected" : ""}${disabled ? " popDisabled" : ""}`;
   div.innerHTML = `
     <div class="popLeft">${escapeHtml(left)}</div>
     <div class="popRight">
@@ -3952,7 +4275,8 @@ function popRow({ left, right, chevron = true, selected = false, onClick }) {
       ${chevron ? `<span class="popChevron" aria-hidden="true"></span>` : ""}
     </div>
   `;
-  div.onclick = onClick;
+  if (!disabled && typeof onClick === "function") div.onclick = onClick;
+  else div.setAttribute("aria-disabled", "true");
   return div;
 }
 
@@ -3983,6 +4307,7 @@ function renderFiltersPopoverRoot() {
   if (filtersPopover.style.display === "none") return;
   popView = "root";
   filtersPopover.innerHTML = "";
+  const allowRelativeFilter = canUseRelativeNameFilter(searchScope);
 
   const g = popRow({
     left: t("filter_gender"),
@@ -4002,6 +4327,7 @@ function renderFiltersPopoverRoot() {
     left: t("filter_relative_name"),
     right: relativeFilterLabel(),
     chevron: false,
+    disabled: !allowRelativeFilter,
     onClick: () => openRelativeNameModal(),
   });
 
@@ -4394,6 +4720,12 @@ function openAgeModal(mode) {
 // ---------- District popovers (landing + results) ----------
 function openDistrictPopover(popEl, btnEl) {
   if (!districtManifest?.districts?.length) return;
+
+  // District popovers are the only popovers that should be left-aligned
+  // with their trigger shell (landing + results).
+  popEl.style.left = "0";
+  popEl.style.right = "auto";
+
   popEl.style.display = "block";
   popEl.setAttribute("aria-hidden", "false");
   if (btnEl) btnEl.setAttribute("aria-expanded", "true");
@@ -4401,8 +4733,25 @@ function openDistrictPopover(popEl, btnEl) {
   ensureDistrictPopoverSkeleton(popEl);
   updateDistrictPopoverList(popEl);
 
-  const input = popEl.querySelector("input[data-role='district-search']");
-  if (input) setTimeout(() => input.focus(), 0);
+  // Desktop-only autofocus for district search.
+  const districtSearchInput = popEl.querySelector("input[data-role='district-search']");
+  if (isDistrictPopoverSearchEnabled() && districtSearchInput && !districtSearchInput.disabled) {
+    try {
+      districtSearchInput.focus({ preventScroll: true });
+    } catch {
+      try {
+        districtSearchInput.focus();
+      } catch {}
+    }
+    try {
+      const len = districtSearchInput.value?.length || 0;
+      districtSearchInput.setSelectionRange(len, len);
+    } catch {}
+  }
+
+  // Keep the same top-gap scroll behavior as the primary search-field activation.
+  const activeInput = getActiveQueryInput();
+  if (activeInput) scrollElementToTopGap(activeInput, LANDING_INPUT_TOP_GAP_PX);
 }
 
 function closeDistrictPopover(popEl, btnEl) {
@@ -4414,6 +4763,20 @@ function closeDistrictPopover(popEl, btnEl) {
 function closeDistrictPopovers() {
   closeDistrictPopover(districtPopover, districtBtn);
   closeDistrictPopover(districtPopoverLanding, districtBtnLanding);
+}
+
+function isDistrictPopoverSearchEnabled() {
+  return !isMobileUI();
+}
+
+function syncDistrictPopoverSearchMode(popEl) {
+  if (!popEl) return;
+  const searchWrap = popEl.querySelector(".popSearch");
+  const inputEl = popEl.querySelector("input[data-role='district-search']");
+  const enabled = isDistrictPopoverSearchEnabled();
+
+  if (searchWrap) searchWrap.style.display = enabled ? "" : "none";
+  if (inputEl) inputEl.disabled = !enabled;
 }
 
 // build popover skeleton once, keep input stable to prevent caret jumping
@@ -4441,6 +4804,7 @@ function ensureDistrictPopoverSkeleton(popEl) {
     updateDistrictPopoverList(popEl);
   });
 
+  syncDistrictPopoverSearchMode(popEl);
   popEl.dataset.built = "1";
 }
 
@@ -4448,6 +4812,7 @@ function updateDistrictPopoverList(popEl) {
   const listEl = popEl.querySelector("div[data-role='district-list']");
   const inputEl = popEl.querySelector("input[data-role='district-search']");
   if (!listEl) return;
+  syncDistrictPopoverSearchMode(popEl);
 
   // keep placeholder translated even when language switches (rebuild placeholder if needed)
   if (inputEl) {
@@ -4459,7 +4824,7 @@ function updateDistrictPopoverList(popEl) {
 
   listEl.innerHTML = "";
 
-  const qRaw = (districtQuery || "").trim();
+  const qRaw = isDistrictPopoverSearchEnabled() ? (districtQuery || "").trim() : "";
   const qNorm = normDistrictSearchStr(qRaw);
   const qNoSpace = qNorm.replace(/\s+/g, "");
   const list = (districtManifest?.districts || []).filter((d) => districtMatchesQuery(d, qNorm, qNoSpace));
@@ -4747,6 +5112,7 @@ document.addEventListener("keydown", (e) => {
     closeSortPopover();
     closePageSizePopover();
     closeModal();
+    closeRowDetailModal();
 
     // NEW: translit popovers
     closeTranslitPopover($("translitPopoverLanding"));
@@ -4766,6 +5132,28 @@ wireIMEEnter(qResults, runSearch);
 
 clearBtn.onclick = () => clearAll();
 clearBtnTop?.addEventListener("click", () => clearAll());
+
+const resultsRoot = $("results");
+resultsRoot?.addEventListener("click", (e) => {
+  const target = e.target;
+  if (!(target instanceof Element)) return;
+
+  const directLink = target.closest("a");
+  if (directLink) return;
+
+  const rowEl = target.closest("tr.resultRowOpenable");
+  if (!rowEl || !resultsRoot.contains(rowEl)) return;
+
+  const rowKey = String(rowEl.getAttribute("data-row-key") || "").trim();
+  if (!rowKey) return;
+  openRowDetailModalFromKey(rowKey);
+});
+
+rowDetailCloseBtn?.addEventListener("click", () => closeRowDetailModal());
+rowDetailOverlay?.addEventListener("click", (e) => {
+  if (e.target !== rowDetailOverlay) return;
+  closeRowDetailModal();
+});
 
 prevBtn.onclick = async () => {
   page--;

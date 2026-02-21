@@ -1,9 +1,10 @@
 <!-- index.html (drop-in replacement) -->
 <!doctype html>
-<html lang="hi">
+<html lang="hi" translate="no" class="notranslate">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="google" content="notranslate" />
   <title>Jharkhand Electoral Roll - 2003</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" />
   <style>
@@ -32,6 +33,10 @@
 
     * { box-sizing: border-box; }
     html, body { height: 100%; }
+    html{
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
 
     body{
       margin: 0;
@@ -360,11 +365,11 @@
       stroke-width: 2.1;
       stroke-linecap: round;
       stroke-dasharray: 126;
-      stroke-dashoffset: 0;
+      stroke-dashoffset: 126;
       opacity: 0;
     }
 
-    /* Listening state: morph mic to stop icon + red ring unfill animation */
+    /* Listening state: morph mic to stop icon + red ring fill animation */
     .micBtn.listening{
       border-color: rgba(0,0,0,.22);
       background: rgba(255, 210, 225, .65);
@@ -373,7 +378,8 @@
     }
     .micBtn.listening .micProgressRingCircle{
       opacity: 1;
-      animation: micRingDrain 4s linear forwards;
+      stroke-dashoffset: 126;
+      animation: micRingFill 6s linear forwards;
     }
     .micBtn.listening .micIcon{
       top: 0;
@@ -399,9 +405,9 @@
       50% { box-shadow: 0 10px 30px rgba(180, 50, 95, .24); }
       100% { box-shadow: 0 8px 24px rgba(180, 50, 95, .12); }
     }
-    @keyframes micRingDrain{
-      0% { stroke-dashoffset: 0; }
-      100% { stroke-dashoffset: 126; }
+    @keyframes micRingFill{
+      0% { stroke-dashoffset: 126; }
+      100% { stroke-dashoffset: 0; }
     }
 
     .listeningChip{
@@ -999,6 +1005,8 @@
     th { position: sticky; top: 0; background: #fff; z-index: 2; border-bottom: 1px solid #ddd; text-align: left; transition: box-shadow 140ms ease; }
     .stickyCol{ position: sticky; left: 0; background:#fff; z-index: 3; border-right: 1px solid #eee; transition: box-shadow 140ms ease; }
     th.stickyCol{ z-index: 4; border-right: 1px solid #ddd; transition: box-shadow 140ms ease; }
+    tr.resultRowOpenable{ cursor: pointer; }
+    tr.resultRowOpenable a{ cursor: pointer; }
     .tableRegion.scrolled-y th{ border-bottom-color: rgba(0,0,0,.22); }
     .tableRegion.scrolled-y th::before{
       content: "";
@@ -1126,6 +1134,12 @@
       border-radius: 18px;
       margin: 6px 10px;
     }
+    .popRow.popDisabled{
+      opacity: .45;
+      cursor: default;
+      pointer-events: none;
+    }
+    .popRow.popDisabled:hover{ background: transparent; }
     .popBack{ color: rgba(0,0,0,.55); font-weight: 900; }
 
     .popSearch{ padding: 10px 14px; }
@@ -1274,6 +1288,109 @@
     }
     .messageModalActions.dual{
       justify-content:space-between;
+    }
+
+    .rowDetailModal{
+      position: relative;
+      padding: 24px;
+      background: #f3f3f4;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      --rowDetailPairGap: 12px;
+    }
+    .rowDetailHeader{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .rowDetailModal .infoBannerClose{
+      position: static;
+      margin-left: auto;
+      flex: 0 0 auto;
+    }
+    .rowDetailIdentity,
+    .rowDetailRelativeGroup{
+      display: flex;
+      flex-direction: column;
+      gap: 0px;
+    }
+    .rowDetailTitle{
+      margin: 0;
+      color: rgba(0,0,0,.56);
+      font-size: 16px;
+      line-height: 1.25;
+      font-weight: 500;
+      letter-spacing: 0;
+      padding-top: 2px;
+    }
+    .rowDetailName{
+      margin: 0;
+      color: #1f2227;
+      font-size: 56px;
+      line-height: 1.04;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .rowDetailAgeGender{
+      margin: 0;
+      color: #2a2d32;
+      font-size: 16px;
+      line-height: 1.2;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+    .rowDetailRelation{
+      margin: 0;
+      color: rgba(0,0,0,.56);
+      font-size: 12px;
+      line-height: 20px;
+      font-weight: 500;
+    }
+    .rowDetailRelativeName{
+      margin: 0;
+      color: #1f2227;
+      font-size: 16px;
+      line-height: 24px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+    .rowDetailMetaGrid{
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr);
+      gap: 12px;
+    }
+    .rowDetailMetaLabel{
+      margin: 0;
+      color: rgba(0,0,0,.56);
+      font-size: 12px;
+      line-height: 20px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .rowDetailMetaValue{
+      margin: 0px;
+      color: #1f2227;
+      font-size: 16px;
+      line-height: 24px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .rowDetailCta{
+      display: inline-flex;
+      align-items: center;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .rowDetailCta.isDisabled{
+      pointer-events: none;
+      color: rgba(0,0,0,.42);
+      text-decoration: none;
     }
 
     .statusToast{
@@ -1451,8 +1568,6 @@
       .announcementGaps li{ font-size: 16px; line-height: 1.45; }
       .announcementWhatsApp{ font-size: 18px; line-height: 1.2; }
       .bannerContentWrap {display: flex; flex-direction: column; gap: 4px;}
-
-
       /* Mobile-only: collapse scope + filters on table scroll */
       #resultsSection .scopeWrap,
       #resultsSection .filtersRow{
@@ -1900,8 +2015,8 @@
             <span class="announcementLinkIcon" aria-hidden="true">&#8599;</span>
           </a>
           <p class="announcementText" data-i18n="announce_need_eci">ECI provides an online Search in SIR tool that handles some misspellings, but not all OCR/typing errors</p>
-          <a class="announcementLink" href="https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QW0DSE" target="_blank" rel="noopener noreferrer">
-            <span data-i18n="announce_link_eci">https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QW0DSE</span>
+          <a class="announcementLink" href="https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QWODSE" target="_blank" rel="noopener noreferrer">
+            <span data-i18n="announce_link_eci">https://voters.eci.gov.in/searchInSIR/S2UA4DPDF-JK4QWODSE</span>
             <span class="announcementLinkIcon" aria-hidden="true">&#8599;</span>
           </a>
         </section>
@@ -1959,6 +2074,49 @@
         <button class="done" id="messageModalPrimaryBtn" type="button"></button>
       </div>
     </div>
+  </div>
+
+  <div class="modalOverlay" id="rowDetailOverlay" aria-hidden="true">
+    <article class="modal rowDetailModal" role="dialog" aria-modal="true" aria-labelledby="rowDetailName">
+      <div class="rowDetailHeader">
+        <p class="rowDetailTitle" data-i18n="row_detail_title">Electoral roll details</p>
+        <button
+          class="infoBannerClose"
+          id="rowDetailCloseBtn"
+          type="button"
+          aria-label="Close details"
+          title="Close details"
+          data-i18n-aria-label="close_toast"
+          data-i18n-title="close_toast">&times;</button>
+      </div>
+
+      <div class="rowDetailIdentity">
+        <h2 class="rowDetailName" id="rowDetailName" style="margin-bottom: 6px;"></h2>
+        <div class="rowDetailAgeGender" id="rowDetailAgeGender"></div>
+      </div>
+
+      <div class="rowDetailRelativeGroup">
+        <div class="rowDetailRelation" id="rowDetailRelation"></div>
+        <div class="rowDetailRelativeName" id="rowDetailRelativeName"></div>
+      </div>
+
+      <div class="rowDetailMetaGrid">
+        <div>
+          <div class="rowDetailMetaLabel" data-i18n="row_detail_ac">Assembly Constituency</div>
+          <div class="rowDetailMetaValue" id="rowDetailAcValue"></div>
+        </div>
+        <div>
+          <div class="rowDetailMetaLabel" data-i18n="row_detail_part">Part</div>
+          <div class="rowDetailMetaValue" id="rowDetailPartValue"></div>
+        </div>
+        <div>
+          <div class="rowDetailMetaLabel" data-i18n="row_detail_serial">Serial Number</div>
+          <div class="rowDetailMetaValue" id="rowDetailSerialValue"></div>
+        </div>
+      </div>
+
+      <a class="rowDetailCta" id="rowDetailCta" href="#" target="_blank" rel="noopener noreferrer"></a>
+    </article>
   </div>
 
   <div class="statusToast" id="statusToast" aria-live="polite" aria-hidden="true">

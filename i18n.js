@@ -19,10 +19,10 @@ export const I18N = {
     hero_title: "2003 SIR की झारखंड मतदाता सूची",
     hero_subtitle: "झारखंड की 2003 SIR सूची में अपना नाम खोजें",
     select_district: "ज़िला चुनें",
-    placeholder_query: "बोल कर टाइप करने के लिए माइक दबायें →",
+    placeholder_query: "अपना नाम टाइप करने के लिए माइक दबायें →",
     btn_search: "खोजें",
-    include_typing: "परिणाम में टाइपिंग की गलतियाँ भी शामिल करें",
-    tip_text: "टिप: अपना नाम या रिश्तेदार का नाम (पिता, पति, माता) लिखें",
+    include_typing: "सरकारी रिकॉर्ड में मेरे नाम की स्पेलिंग ग़लत भी हो सकती है",
+    tip_text: "हिंट: अपना ज़िला चुनें फिर नाम लिख कर खोजें बटन दबायें",
     mic_listening: "माइक चालू है, बोलें…",
 
     // footer
@@ -39,7 +39,7 @@ export const I18N = {
     chip_relative: "रिश्तेदार का नाम",
     chip_anywhere: "कहीं भी",
 
-    more_filters: "अन्य फ़िल्टर",
+    more_filters: "खोज का दायरा",
     search_results: "परिणाम",
 
     // pager + modal
@@ -89,16 +89,16 @@ export const I18N = {
 
     // AC + sort
     selected_acs_none: "चयनित निर्वाचन क्षेत्र: —",
-    selected_acs_all: "चयनित निर्वाचन क्षेत्र: सभी",
-    selected_acs_list: "चयनित निर्वाचन क्षेत्र: {list}",
-    selected_acs_n: "चयनित निर्वाचन क्षेत्र: {n} चुने गए",
+    selected_acs_all: "चयनित विधान सभा क्षेत्र: सभी",
+    selected_acs_list: "चयनित विधान सभा षेत्र: {list}",
+    selected_acs_n: "चयनित विधान सभा क्षेत्र: {n} चुने गए",
 
-    sort_by_relevance: "क्रम: नाम से मिलान के अनुसार",
-    sort_by_age_up: "क्रम: उम्र ↑",
-    sort_by_age_down: "क्रम: उम्र ↓",
-    sort_row_relevance: "क्रम: नाम से मिलान के अनुसार",
-    sort_row_age_up: "क्रम: उम्र ↑",
-    sort_row_age_down: "क्रम: उम्र ↓",
+    sort_by_relevance: "सूची का क्रम: नाम से मिलान के अनुसार",
+    sort_by_age_up: "सूची का क्रम: उम्र ↑",
+    sort_by_age_down: "क्सूची का क्रम: उम्र ↓",
+    sort_row_relevance: "सूची का क्रम: नाम से मिलान के अनुसार",
+    sort_row_age_up: "सूची का क्रम: उम्र ↑",
+    sort_row_age_down: "सूची का क्रम: उम्र ↓",
 
     Scroll_to_top: "ऊपर जाएँ",
 
@@ -130,8 +130,8 @@ export const I18N = {
     progress_ac_context: "निर्वाचन क्षेत्र {ac} ({i}/{n})",
     progress_sub: "{done}/{total} • ETA {eta}",
     banner_important: "ध्यान दें:",
-    banner_text: "प्रत्येक नाम के साथ पेज नंबर, सीरियल नंबर और संबंधित PDF फ़ाइल है। कृपया लाइन के अंत पर दाएँ ओर PDF खोल के नाम की जाँच कर लें।",
-    know_more: "अधिक जानें",
+    banner_text: "अपने ढूंढे हुए नाम पर क्लिक करें और सरकारी रिकॉर्ड के साथ मिलान कर लें।",
+    know_more: "अधिक जानने के लिए यहाँ क्लिक करें",
     close_banner: "बैनर बंद करें",
     faq_open_announcement: "पोर्टल के बारे में जानकारी खोलें",
     go_back: "वापस जाएँ",
@@ -170,8 +170,8 @@ export const I18N = {
 
 
     status_stage0: "स्टेज 0: निर्वाचन क्षेत्र {ac} लोड हो रहा है ({i}/{n})…",
-    status_stage1_exact: "स्टेज 1: कैंडिडेट (निर्वाचन क्षेत्र {ac}) • strict ∪ exact…",
-    status_stage1_loose: "स्टेज 1: कैंडिडेट (निर्वाचन क्षेत्र {ac}) • strict ∪ exact ∪ loose…",
+    status_stage1_exact: "स्टेज 1: कैंडिडेट (निर्वाचन क्षेत्र {ac})",
+    status_stage1_loose: "स्टेज 1: कैंडिडेट (निर्वाचन क्षेत्र {ac})",
     status_stage2: "स्टेज 2: {n} कैंडिडेट फ़ेच (निर्वाचन क्षेत्र {ac})…",
     status_stage3: "स्टेज 3: {n} रो रैंकिंग (निर्वाचन क्षेत्र {ac})…",
 
@@ -204,6 +204,11 @@ export const I18N = {
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "PDF खोलें",
+    row_detail_title: "मतदाता विवरण",
+    row_detail_ac: "निर्वाचन क्षेत्र",
+    row_detail_part: "भाग",
+    row_detail_serial: "सीरियल नंबर",
+    row_detail_cta_validate: "सरकारी रिकॉर्ड से मिलान करें, पेज {page} →",
 
     // page info prefix
     showing_prefix: "{from}-{to} / ",
@@ -394,6 +399,11 @@ export const I18N = {
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "Open PDF",
+    row_detail_title: "Electoral roll details",
+    row_detail_ac: "Assembly Constituency",
+    row_detail_part: "Part",
+    row_detail_serial: "Serial Number",
+    row_detail_cta_validate: "Government record se validate karein, page {page} →",
 
     showing_prefix: "Showing {from}-{to} of ",
     page_x_of_y: "Page {p}/{t}",
@@ -582,6 +592,11 @@ export const I18N = {
     h_id: "ID",
     h_pdf: "PDF",
     open_pdf: "Open PDF",
+    row_detail_title: "Electoral roll details",
+    row_detail_ac: "Assembly Constituency",
+    row_detail_part: "Part",
+    row_detail_serial: "Serial Number",
+    row_detail_cta_validate: "Validate with government record, page {page} →",
 
     showing_prefix: "Showing {from}-{to} of ",
     page_x_of_y: "Page {p}/{t}",
