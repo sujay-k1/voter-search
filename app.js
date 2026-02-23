@@ -569,8 +569,13 @@ function openTranslitPopover(popEl, anchorWrapEl) {
   // ensure width matches input wrap
   if (anchorWrapEl) {
     const w = anchorWrapEl.getBoundingClientRect().width;
-    if (w && Number.isFinite(w))
-      popEl.style.minWidth = `${Math.max(240, Math.floor(w))}px`;
+    if (w && Number.isFinite(w)) {
+      const px = `${Math.max(240, Math.floor(w))}px`;
+      popEl.style.minWidth = px;
+      // Keep outer width fixed; multi-word content scrolls horizontally inside.
+      popEl.style.width = px;
+      popEl.style.maxWidth = px;
+    }
   }
 }
 
@@ -580,9 +585,13 @@ function closeTranslitPopover(popEl) {
   popEl.setAttribute("aria-hidden", "true");
   // clear highlights but keep skeleton
   const list = popEl.querySelector("div[data-role='translit-list']");
-  if (list) list.innerHTML = "";
+  if (list) {
+    list.innerHTML = "";
+    list.classList.remove("translitListMulti");
+  }
   popEl.dataset.activeIndex = "-1";
   popEl.dataset.items = "[]";
+  popEl.dataset.translitMode = "";
 }
 
 function renderTranslitSuggestions(popEl, suggestions, { onPick, activeIndex = -1 } = {}) {
@@ -593,6 +602,8 @@ function renderTranslitSuggestions(popEl, suggestions, { onPick, activeIndex = -
   if (!listEl) return;
 
   listEl.innerHTML = "";
+  listEl.classList.remove("translitListMulti");
+  popEl.dataset.translitMode = "single";
 
   const items = suggestions.slice(0, 5);
   popEl.dataset.items = JSON.stringify(items);
@@ -877,18 +888,355 @@ function attachNameEnhancements({
     inputMode = detectScriptModeFromText(text);
   }
 
+  let multiTranslitState = null; // persists while field exists (survives popover close/open)
+
+  function translitSanitizeText(text) {
+    return String(text || "")
+      .replace(/[.,;:!?'"(){}\[\]<>|\\/`~^*+=—–_-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function splitTranslitWords(text) {
+    const cleaned = translitSanitizeText(text);
+    return cleaned ? cleaned.split(" ").filter(Boolean) : [];
+  }
+
+  function translitWordKey(word) {
+    const s = String(word || "").trim();
+    if (!s) return "";
+    return /[A-Za-z]/.test(s) && !containsDevanagari(s) ? s.toLowerCase() : s;
+  }
+
+  function hasLatinLetters(text) {
+    return /[A-Za-z]/.test(String(text || ""));
+  }
+
+  function normalizeSuggestionList(rawList, rawInput) {
+    const base = String(rawInput || "").trim();
+    const seen = new Set();
+    const out = [];
+    for (const c of rawList || []) {
+      const cand = String(c || "").trim();
+      if (!cand) continue;
+      if (cand === base) continue;
+      if (seen.has(cand)) continue;
+      seen.add(cand);
+      out.push(cand);
+      if (out.length >= 5) break;
+    }
+    return out;
+  }
+
+  function isMultiWordPickerState(state) {
+    return !!(state && Array.isArray(state.words) && state.words.length >= 2);
+  }
+
+  function allMultiWordsSelected(state) {
+    return !!state && (state.words || []).every((w) => Number.isInteger(w.selectedIndex) && w.selectedIndex >= 0);
+  }
+
+  function getWordSelectedValue(word) {
+    if (!word) return "";
+    if (Number.isInteger(word.selectedIndex) && word.selectedIndex >= 0 && word.selectedIndex < (word.options || []).length) {
+      return String(word.options[word.selectedIndex] || "").trim();
+    }
+    return String(word.text || "").trim();
+  }
+
+  function composeMultiWordValue(state) {
+    return (state?.words || [])
+      .map((w) => getWordSelectedValue(w))
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function clampActiveRowForWord(state, wordIndex, preferred = 0) {
+    if (!isMultiWordPickerState(state)) return 0;
+    const word = state.words[wordIndex];
+    const count = Math.max(0, Math.min(5, (word?.options || []).length));
+    if (!count) return -1;
+    const n = Number(preferred);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(count - 1, Math.trunc(n)));
+  }
+
+  function setMultiActiveWord(state, nextWordIndex) {
+    if (!isMultiWordPickerState(state)) return;
+    const count = state.words.length;
+    const idx = Math.max(0, Math.min(count - 1, Math.trunc(Number(nextWordIndex) || 0)));
+    state.activeWordIndex = idx;
+    const pref = state.activeRowIndexByWord[idx];
+    state.activeRowIndexByWord[idx] = clampActiveRowForWord(state, idx, pref);
+  }
+
+  function buildMultiwordStateFromInput(text) {
+    const tokens = splitTranslitWords(text);
+    if (tokens.length < 2) return null;
+
+    const prev = isMultiWordPickerState(multiTranslitState) ? multiTranslitState : null;
+    const words = [];
+    const activeRowIndexByWord = [];
+    const pendingFetches = [];
+
+    for (let i = 0; i < tokens.length; i++) {
+      const token = String(tokens[i] || "").trim();
+      const key = translitWordKey(token);
+      const prevWord = prev?.words?.[i];
+      const canReuse = !!prevWord && String(prevWord.key || "") === key;
+
+      let word;
+      if (canReuse) {
+        word = {
+          key,
+          text: token,
+          options: Array.isArray(prevWord.options) ? prevWord.options.slice(0, 5) : [],
+          selectedIndex: Number.isInteger(prevWord.selectedIndex) ? prevWord.selectedIndex : null,
+        };
+      } else {
+        word = {
+          key,
+          text: token,
+          options: [],
+          selectedIndex: null,
+        };
+      }
+
+      // Non-Latin tokens are treated as already-fixed values if we don't have prior options.
+      if (!hasLatinLetters(token)) {
+        if (!word.options.length) word.options = [token];
+        if (!Number.isInteger(word.selectedIndex)) {
+          const exactIdx = word.options.findIndex((x) => String(x || "").trim() === token);
+          word.selectedIndex = exactIdx >= 0 ? exactIdx : 0;
+          if (exactIdx < 0 && word.options.length < 5) word.options.unshift(token);
+        }
+      } else if (!word.options.length) {
+        pendingFetches.push({ index: i, token });
+      }
+
+      if (Number.isInteger(word.selectedIndex)) {
+        if (word.selectedIndex < 0 || word.selectedIndex >= word.options.length) word.selectedIndex = null;
+      }
+
+      words.push(word);
+
+      const prevRow = canReuse ? prev?.activeRowIndexByWord?.[i] : undefined;
+      const fallbackRow = Number.isInteger(word.selectedIndex) ? word.selectedIndex : 0;
+      activeRowIndexByWord.push(Number.isFinite(Number(prevRow)) ? Number(prevRow) : fallbackRow);
+    }
+
+    const state = {
+      mode: "multi",
+      words,
+      activeWordIndex: 0,
+      activeRowIndexByWord,
+      scrollLeft: Math.max(0, Math.trunc(Number(prev?.scrollLeft) || 0)),
+    };
+    setMultiActiveWord(state, 0);
+    return { state, pendingFetches };
+  }
+
+  function renderMultiwordTranslitSuggestions() {
+    const state = multiTranslitState;
+    if (!isMultiWordPickerState(state)) {
+      closeAll();
+      return;
+    }
+
+    ensureTranslitPopoverSkeleton(popEl);
+    const listEl = popEl.querySelector("div[data-role='translit-list']");
+    if (!listEl) return;
+    if (isMultiWordPickerState(state)) {
+      state.scrollLeft = Math.max(0, Math.trunc(Number(state.scrollLeft) || listEl.scrollLeft || 0));
+    }
+
+    listEl.innerHTML = "";
+    listEl.classList.add("translitListMulti");
+    popEl.dataset.translitMode = "multi";
+
+    const maxRows = Math.max(0, ...state.words.map((w) => Math.min(5, (w.options || []).length)));
+    if (!maxRows) {
+      closeAll();
+      return;
+    }
+
+    for (let rowIdx = 0; rowIdx < maxRows; rowIdx++) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "translitPhraseRow";
+
+      for (let wordIdx = 0; wordIdx < state.words.length; wordIdx++) {
+        const word = state.words[wordIdx];
+        const option = (word.options || [])[rowIdx];
+        if (!option) continue; // hidden if this word has fewer rows
+
+        const seg = document.createElement("button");
+        seg.type = "button";
+        seg.className = "translitPhraseSeg";
+        seg.textContent = option;
+        seg.setAttribute("tabindex", "-1");
+        seg.dataset.wordIndex = String(wordIdx);
+        seg.dataset.optionIndex = String(rowIdx);
+
+        if (word.selectedIndex === rowIdx) seg.classList.add("isSelected");
+        if (state.activeWordIndex === wordIdx && (state.activeRowIndexByWord[wordIdx] ?? -1) === rowIdx) {
+          seg.classList.add("isActive");
+        }
+
+        seg.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+
+        seg.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          pickMultiwordOption(wordIdx, rowIdx, { moveNext: false });
+        });
+
+        rowEl.appendChild(seg);
+      }
+
+      if (rowEl.childNodes.length) listEl.appendChild(rowEl);
+    }
+
+    if (typeof state.scrollLeft === "number" && Number.isFinite(state.scrollLeft)) {
+      listEl.scrollLeft = Math.max(0, state.scrollLeft);
+    }
+
+    const activeSeg = listEl.querySelector(".translitPhraseSeg.isActive");
+    if (activeSeg && typeof activeSeg.scrollIntoView === "function") {
+      try {
+        activeSeg.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } catch {}
+    }
+
+    if (!listEl.dataset.multiScrollBound) {
+      listEl.addEventListener("scroll", () => {
+        if (isMultiWordPickerState(multiTranslitState)) {
+          multiTranslitState.scrollLeft = listEl.scrollLeft || 0;
+        }
+      });
+      listEl.dataset.multiScrollBound = "1";
+    }
+  }
+
+  function pickMultiwordOption(wordIdx, optionIdx, { moveNext = false } = {}) {
+    const state = multiTranslitState;
+    if (!isMultiWordPickerState(state)) return;
+    if (wordIdx < 0 || wordIdx >= state.words.length) return;
+    const word = state.words[wordIdx];
+    if (!word || optionIdx < 0 || optionIdx >= (word.options || []).length) return;
+
+    const wasComplete = allMultiWordsSelected(state);
+
+    word.selectedIndex = optionIdx;
+    word.text = String(word.options[optionIdx] || "").trim() || word.text;
+    word.key = translitWordKey(word.text);
+
+    state.activeWordIndex = wordIdx;
+    state.activeRowIndexByWord[wordIdx] = optionIdx;
+
+    if (moveNext && wordIdx < state.words.length - 1) {
+      setMultiActiveWord(state, wordIdx + 1);
+    }
+
+    const composed = composeMultiWordValue(state);
+    if (composed) {
+      ignoreUntil = now() + 100;
+      setInputValueNoRerender(inputEl, composed);
+      setModeFromText(composed);
+    }
+
+    const isComplete = allMultiWordsSelected(state);
+    if (!wasComplete && isComplete) {
+      closeAll();
+      if (typeof onCommit === "function") onCommit(composed);
+      return;
+    }
+
+    openTranslitPopover(popEl, wrapEl);
+    renderMultiwordTranslitSuggestions();
+  }
+
+  async function requestMultiwordSuggestions(text, { fromFocus = false, bypassIgnore = false } = {}) {
+    const q = String(text || "");
+    const trimmed = q.trim();
+    if (!trimmed) {
+      multiTranslitState = null;
+      closeAll();
+      return false;
+    }
+    if (suppressSuggestDuringSpeech) return false;
+    if (!fromFocus && !bypassIgnore && now() < ignoreUntil) return false;
+
+    const built = buildMultiwordStateFromInput(q);
+    if (!built) return false;
+
+    const { state, pendingFetches } = built;
+    const reqId = ++lastReqId;
+
+    if (pendingFetches.length) {
+      await Promise.all(
+        pendingFetches.map(async ({ index, token }) => {
+          try {
+            const candsRaw = await fetchGoogleSuggestions(token);
+            const out = normalizeSuggestionList(candsRaw, token);
+            if (reqId !== lastReqId) return;
+            const word = state.words[index];
+            if (!word) return;
+            word.options = out.length ? out : [token];
+            if (Number.isInteger(word.selectedIndex)) {
+              if (word.selectedIndex < 0 || word.selectedIndex >= word.options.length) word.selectedIndex = null;
+            }
+          } catch {
+            if (reqId !== lastReqId) return;
+            const word = state.words[index];
+            if (!word) return;
+            if (!word.options.length) word.options = [token];
+          }
+        })
+      );
+    }
+
+    if (reqId !== lastReqId) return true; // stale; newer request will render
+
+    // Recompute selected text keys and clamp active rows after async fills.
+    for (let i = 0; i < state.words.length; i++) {
+      const w = state.words[i];
+      if (Number.isInteger(w.selectedIndex) && w.selectedIndex >= 0 && w.selectedIndex < w.options.length) {
+        w.text = String(w.options[w.selectedIndex] || "").trim() || w.text;
+      }
+      w.key = translitWordKey(w.text);
+      state.activeRowIndexByWord[i] = clampActiveRowForWord(state, i, state.activeRowIndexByWord[i]);
+    }
+    setMultiActiveWord(state, 0); // per spec: default left-most active on open
+
+    multiTranslitState = state;
+    openTranslitPopover(popEl, wrapEl);
+    renderMultiwordTranslitSuggestions();
+    return true;
+  }
+
   function commitSuggestion(chosen) {
+    multiTranslitState = null;
     ignoreUntil = now() + 80;
     setInputValueNoRerender(inputEl, chosen);
     closeAll();
     if (typeof onCommit === "function") onCommit(chosen);
   }
 
-  async function requestSuggestions(text) {
+  async function requestSuggestions(text, { fromFocus = false, bypassIgnore = false } = {}) {
     const q = String(text || "");
     const trimmed = q.trim();
     if (!trimmed) {
+      multiTranslitState = null;
       closeAll();
+      return;
+    }
+    if (splitTranslitWords(trimmed).length >= 2) {
+      await requestMultiwordSuggestions(trimmed, { fromFocus, bypassIgnore });
       return;
     }
     if (inputMode !== "latin") {
@@ -896,25 +1244,14 @@ function attachNameEnhancements({
       return;
     }
     if (suppressSuggestDuringSpeech) return;
-    if (now() < ignoreUntil) return;
+    if (!fromFocus && !bypassIgnore && now() < ignoreUntil) return;
 
     const reqId = ++lastReqId;
     try {
       const candsRaw = await fetchGoogleSuggestions(trimmed);
       if (reqId !== lastReqId) return; // stale
 
-      // filter: remove empties, identical to input, dedupe
-      const seen = new Set();
-      const out = [];
-      for (const c of candsRaw) {
-        const cand = String(c || "").trim();
-        if (!cand) continue;
-        if (cand === trimmed) continue;
-        if (seen.has(cand)) continue;
-        seen.add(cand);
-        out.push(cand);
-        if (out.length >= 5) break;
-      }
+      const out = normalizeSuggestionList(candsRaw, trimmed);
 
       if (!out.length) {
         closeAll();
@@ -936,7 +1273,7 @@ function attachNameEnhancements({
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      requestSuggestions(text);
+      requestSuggestions(text).catch(() => {});
     }, TRANSLIT.debounceMs);
   }
 
@@ -974,13 +1311,37 @@ function attachNameEnhancements({
     } catch {}
   });
 
+  inputEl.addEventListener("focus", () => {
+    if (isComposing) return;
+    if (suppressSuggestDuringSpeech) return;
+    const disabled = getDisabledState ? !!getDisabledState() : !!inputEl.disabled;
+    if (disabled) return;
+
+    const v = String(inputEl.value || "");
+    if (!v.trim()) return;
+
+    // Multi-word picker should reopen on every focus (even if already selected / mixed script).
+    const shouldReopenMulti =
+      splitTranslitWords(v).length >= 2 && (hasLatinLetters(v) || isMultiWordPickerState(multiTranslitState));
+    if (shouldReopenMulti) {
+      requestSuggestions(v, { fromFocus: true, bypassIgnore: true }).catch(() => {});
+    }
+  });
+
   inputEl.addEventListener("input", () => {
     if (isComposing) return; // don't interfere mid-IME
     if (suppressSuggestDuringSpeech) return;
 
     const v = String(inputEl.value || "");
     if (!v.trim()) {
+      multiTranslitState = null;
       closeAll();
+      return;
+    }
+
+    const shouldUseMulti = splitTranslitWords(v).length >= 2 && (hasLatinLetters(v) || isMultiWordPickerState(multiTranslitState));
+    if (shouldUseMulti) {
+      scheduleSuggest(v);
       return;
     }
 
@@ -998,6 +1359,75 @@ function attachNameEnhancements({
     (e) => {
       const isOpen = popEl.style.display === "block";
       if (!isOpen) return;
+
+      const isMultiMode = popEl.dataset.translitMode === "multi" && isMultiWordPickerState(multiTranslitState);
+      if (isMultiMode) {
+        const state = multiTranslitState;
+        const keysToTrap = new Set(["Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Enter"]);
+        if (keysToTrap.has(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+        }
+
+        if (e.key === "Escape") {
+          closeAll();
+          return;
+        }
+
+        if (!state || !state.words.length) {
+          closeAll();
+          return;
+        }
+
+        const wCount = state.words.length;
+        const curWord = Math.max(0, Math.min(wCount - 1, state.activeWordIndex ?? 0));
+        let curRow = clampActiveRowForWord(state, curWord, state.activeRowIndexByWord?.[curWord]);
+        state.activeWordIndex = curWord;
+        state.activeRowIndexByWord[curWord] = curRow;
+
+        if (e.key === "ArrowLeft") {
+          if (curWord > 0) {
+            setMultiActiveWord(state, curWord - 1);
+            const nextW = state.activeWordIndex;
+            state.activeRowIndexByWord[nextW] = clampActiveRowForWord(state, nextW, curRow);
+            renderMultiwordTranslitSuggestions();
+          }
+          return;
+        }
+
+        if (e.key === "ArrowRight") {
+          if (curWord < wCount - 1) {
+            setMultiActiveWord(state, curWord + 1);
+            const nextW = state.activeWordIndex;
+            state.activeRowIndexByWord[nextW] = clampActiveRowForWord(state, nextW, curRow);
+            renderMultiwordTranslitSuggestions();
+          }
+          return;
+        }
+
+        if (e.key === "ArrowDown") {
+          const nextRow = clampActiveRowForWord(state, curWord, curRow + 1);
+          state.activeRowIndexByWord[curWord] = nextRow;
+          renderMultiwordTranslitSuggestions();
+          return;
+        }
+
+        if (e.key === "ArrowUp") {
+          const nextRow = clampActiveRowForWord(state, curWord, curRow - 1);
+          state.activeRowIndexByWord[curWord] = nextRow;
+          renderMultiwordTranslitSuggestions();
+          return;
+        }
+
+        if (e.key === "Enter") {
+          const pickRow = clampActiveRowForWord(state, curWord, curRow);
+          if (pickRow >= 0) {
+            pickMultiwordOption(curWord, pickRow, { moveNext: true });
+          }
+          return;
+        }
+      }
 
       const items = getItemsFromPopover(popEl);
       const hasItems = items.length > 0;
@@ -1105,6 +1535,7 @@ function attachNameEnhancements({
 
     ignoreUntil = now() + 120;
     setInputValueNoRerender(inputEl, transcript);
+    const speechWords = splitTranslitWords(transcript);
 
     if (containsDevanagari(transcript)) {
       inputMode = "nonlatin";
@@ -1114,20 +1545,21 @@ function attachNameEnhancements({
     }
 
     inputMode = "latin";
+    if (speechWords.length >= 2) {
+      (async () => {
+        try {
+          await requestSuggestions(transcript, { fromFocus: true, bypassIgnore: true });
+        } catch {
+          closeAll();
+        }
+      })();
+      return;
+    }
+
     (async () => {
       try {
         const candsRaw = await fetchGoogleSuggestions(transcript);
-        const seen = new Set();
-        const out = [];
-        for (const c of candsRaw) {
-          const cand = String(c || "").trim();
-          if (!cand) continue;
-          if (cand === transcript) continue;
-          if (seen.has(cand)) continue;
-          seen.add(cand);
-          out.push(cand);
-          if (out.length >= 5) break;
-        }
+        const out = normalizeSuggestionList(candsRaw, transcript);
 
         if (out.length) {
           openTranslitPopover(popEl, wrapEl);
