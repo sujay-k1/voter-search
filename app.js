@@ -598,11 +598,32 @@ function ensureTranslitPopoverSkeleton(popEl) {
 
   popEl.innerHTML = "";
 
+  const hint = document.createElement("div");
+  hint.dataset.role = "translit-hint";
+  hint.className = "translitHint";
+  hint.setAttribute("hidden", "");
+  hint.setAttribute("data-i18n", "translit_pick_spelling_hint");
+  hint.textContent = t("translit_pick_spelling_hint");
+  popEl.appendChild(hint);
+
   const list = document.createElement("div");
   list.dataset.role = "translit-list";
   popEl.appendChild(list);
 
   popEl.dataset.built = "1";
+}
+
+function setTranslitPopoverHintVisible(popEl, visible) {
+  if (!popEl) return;
+  ensureTranslitPopoverSkeleton(popEl);
+  const hintEl = popEl.querySelector("div[data-role='translit-hint']");
+  if (!hintEl) return;
+  if (visible) {
+    hintEl.removeAttribute("hidden");
+    hintEl.textContent = t("translit_pick_spelling_hint");
+  } else {
+    hintEl.setAttribute("hidden", "");
+  }
 }
 
 function openTranslitPopover(popEl, anchorWrapEl) {
@@ -637,6 +658,7 @@ function closeTranslitPopover(popEl) {
     list.innerHTML = "";
     list.classList.remove("translitListMulti");
   }
+  setTranslitPopoverHintVisible(popEl, false);
   popEl.dataset.activeIndex = "-1";
   popEl.dataset.items = "[]";
   popEl.dataset.translitMode = "";
@@ -652,6 +674,7 @@ function renderTranslitSuggestions(popEl, suggestions, { onPick, activeIndex = -
   listEl.innerHTML = "";
   listEl.classList.remove("translitListMulti");
   popEl.dataset.translitMode = "single";
+  setTranslitPopoverHintVisible(popEl, true);
 
   const items = suggestions.slice(0, 5);
   popEl.dataset.items = JSON.stringify(items);
@@ -1106,6 +1129,7 @@ function attachNameEnhancements({
     listEl.innerHTML = "";
     listEl.classList.add("translitListMulti");
     popEl.dataset.translitMode = "multi";
+    setTranslitPopoverHintVisible(popEl, true);
 
     const maxRows = Math.max(0, ...state.words.map((w) => Math.min(5, (w.options || []).length)));
     if (!maxRows) {
