@@ -1387,12 +1387,9 @@ function attachNameEnhancements({
     const v = String(inputEl.value || "");
     if (!v.trim()) return;
 
-    // Multi-word picker should reopen on every focus (even if already selected / mixed script).
-    const shouldReopenMulti =
-      splitTranslitWords(v).length >= 2 && (hasLatinLetters(v) || isMultiWordPickerState(multiTranslitState));
-    if (shouldReopenMulti) {
-      requestSuggestions(v, { fromFocus: true, bypassIgnore: true }).catch(() => {});
-    }
+    // Reopen transliteration suggestions on focus when text already exists.
+    // `requestSuggestions` keeps non-latin/pure Devanagari single-word behavior unchanged.
+    requestSuggestions(v, { fromFocus: true, bypassIgnore: true }).catch(() => {});
   });
 
   inputEl.addEventListener("input", () => {
