@@ -471,6 +471,9 @@ const TRANSLIT = {
   debounceMs: 120,
 };
 const MIC_AUTO_STOP_MS = 6000;
+const TRANSLIT_WORD_CACHE_MAX = 400;
+const translitWordCacheBySource = new Map(); // key: latin/source token
+const translitWordCacheBySelected = new Map(); // key: selected devanagari token
 
 function isDevanagariChar(ch) {
   if (!ch) return false;
@@ -491,6 +494,51 @@ function detectScriptModeFromText(s) {
   // treat pure ASCII letters/spaces/punct as latin-intent if it has at least one A-Z
   if (/[A-Za-z]/.test(s)) return "latin";
   return "nonlatin";
+}
+
+function translitSharedTokenKey(word) {
+  const s = String(word || "").trim();
+  if (!s) return "";
+  return /[A-Za-z]/.test(s) && !containsDevanagari(s) ? s.toLowerCase() : s;
+}
+
+function cloneTranslitWordCacheEntry(entry) {
+  if (!entry || !Array.isArray(entry.options)) return null;
+  return {
+    options: entry.options.slice(0, 5).map((x) => String(x || "").trim()).filter(Boolean),
+    selectedIndex: Number.isInteger(entry.selectedIndex) ? entry.selectedIndex : null,
+    sourceKey: entry.sourceKey ? String(entry.sourceKey) : "",
+    selectedKey: entry.selectedKey ? String(entry.selectedKey) : "",
+  };
+}
+
+function setTranslitWordCache(map, key, entry) {
+  const k = String(key || "").trim();
+  const cloned = cloneTranslitWordCacheEntry(entry);
+  if (!k || !cloned || !cloned.options.length) return;
+  if (map.has(k)) map.delete(k);
+  map.set(k, cloned);
+  while (map.size > TRANSLIT_WORD_CACHE_MAX) {
+    const firstKey = map.keys().next().value;
+    if (typeof firstKey === "undefined") break;
+    map.delete(firstKey);
+  }
+}
+
+function getTranslitWordCacheByToken(token) {
+  const k = translitSharedTokenKey(token);
+  if (!k) return null;
+  return cloneTranslitWordCacheEntry(translitWordCacheBySelected.get(k) || translitWordCacheBySource.get(k) || null);
+}
+
+function rememberTranslitWordOptions({ sourceToken = "", selectedToken = "", options = [], selectedIndex = null } = {}) {
+  const cleanedOptions = Array.from(new Set((options || []).map((x) => String(x || "").trim()).filter(Boolean))).slice(0, 5);
+  if (!cleanedOptions.length) return;
+  const sourceKey = translitSharedTokenKey(sourceToken);
+  const selectedKey = translitSharedTokenKey(selectedToken);
+  const entry = { options: cleanedOptions, selectedIndex: Number.isInteger(selectedIndex) ? selectedIndex : null, sourceKey, selectedKey };
+  if (sourceKey) setTranslitWordCache(translitWordCacheBySource, sourceKey, entry);
+  if (selectedKey) setTranslitWordCache(translitWordCacheBySelected, selectedKey, entry);
 }
 
 function isIOS() {
@@ -992,15 +1040,18 @@ function attachNameEnhancements({
         word = {
           key,
           text: token,
+          sourceToken: String(prevWord.sourceToken || token || ""),
           options: Array.isArray(prevWord.options) ? prevWord.options.slice(0, 5) : [],
           selectedIndex: Number.isInteger(prevWord.selectedIndex) ? prevWord.selectedIndex : null,
         };
       } else {
+        const cached = getTranslitWordCacheByToken(token);
         word = {
           key,
           text: token,
-          options: [],
-          selectedIndex: null,
+          sourceToken: String(cached?.sourceKey || token || ""),
+          options: Array.isArray(cached?.options) ? cached.options.slice(0, 5) : [],
+          selectedIndex: Number.isInteger(cached?.selectedIndex) ? cached.selectedIndex : null,
         };
       }
 
@@ -1134,6 +1185,12 @@ function attachNameEnhancements({
     word.selectedIndex = optionIdx;
     word.text = String(word.options[optionIdx] || "").trim() || word.text;
     word.key = translitWordKey(word.text);
+    rememberTranslitWordOptions({
+      sourceToken: word.sourceToken || "",
+      selectedToken: word.text,
+      options: word.options,
+      selectedIndex: word.selectedIndex,
+    });
 
     state.activeWordIndex = wordIdx;
     state.activeRowIndexByWord[wordIdx] = optionIdx;
@@ -1187,6 +1244,11 @@ function attachNameEnhancements({
             const word = state.words[index];
             if (!word) return;
             word.options = out.length ? out : [token];
+            rememberTranslitWordOptions({
+              sourceToken: word.sourceToken || token,
+              options: word.options,
+              selectedIndex: word.selectedIndex,
+            });
             if (Number.isInteger(word.selectedIndex)) {
               if (word.selectedIndex < 0 || word.selectedIndex >= word.options.length) word.selectedIndex = null;
             }
@@ -1195,6 +1257,11 @@ function attachNameEnhancements({
             const word = state.words[index];
             if (!word) return;
             if (!word.options.length) word.options = [token];
+            rememberTranslitWordOptions({
+              sourceToken: word.sourceToken || token,
+              options: word.options,
+              selectedIndex: word.selectedIndex,
+            });
           }
         })
       );
