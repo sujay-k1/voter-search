@@ -21,7 +21,7 @@ export const I18N = {
     select_district: "ज़िला चुनें",
     placeholder_query: "अपना नाम टाइप करने के लिए माइक दबायें →",
     btn_search: "खोजें",
-    include_typing: "सरकारी रिकॉर्ड में मेरे नाम की स्पेलिंग ग़लत भी हो सकती है",
+    include_typing: "सरकारी रिकॉर्ड में मौजूद ग़लत स्पेलिंग को भी शामिल करें",
     tip_text: "हिंट: अपना ज़िला चुनें फिर नाम लिख कर खोजें बटन दबायें",
     mic_listening: "माइक चालू है, बोलें…",
 
@@ -86,6 +86,7 @@ export const I18N = {
 
     // district popover
     district_search_placeholder: "ज़िला खोजें…",
+    translit_pick_spelling_hint: "अपने नाम की सही स्पेलिंग को एक-एक कर के क्लिक करें.",
 
     // AC + sort
     selected_acs_none: "चयनित निर्वाचन क्षेत्र: —",
@@ -285,6 +286,7 @@ export const I18N = {
     modal_enter_name: "Naam enter karein",
 
     district_search_placeholder: "District search…",
+    translit_pick_spelling_hint: "har shabd ki sahi spelling par click kar ke chunein.",
 
     selected_acs_none: "Selected ACs: —",
     selected_acs_all: "Selected ACs: All",
@@ -479,6 +481,7 @@ export const I18N = {
     modal_enter_name: "Enter a name",
 
     district_search_placeholder: "Search district…",
+    translit_pick_spelling_hint: "pick the correct spelling for each word in your name",
 
     selected_acs_none: "Selected ACs: —",
     selected_acs_all: "Selected ACs: All",
