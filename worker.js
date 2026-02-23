@@ -746,8 +746,9 @@ function buildRankKeyMultiwordExact(matraDiffs, prefixWords, middleWords, suffix
 function buildRankKeyMultiwordInternal(internalCounts, tierScores, matraDiffs, prefixWords, middleWords, suffixWords) {
   const ak = affixKey(prefixWords, middleWords, suffixWords);
 
-  const subsVec = internalCounts.slice().reverse(); // last word first (favoured)
-  const tierVec = tierScores.slice().reverse();
+  // Prefer earlier query words in fuzzy tie-breaks: word1 > word2 > word3...
+  const subsVec = internalCounts.slice();
+  const tierVec = tierScores.slice();
 
   let matraPenalty = 0;
   for (let i = 0; i < matraDiffs.length; i++) {
@@ -765,10 +766,11 @@ function buildRankKeyMultiwordInternal(internalCounts, tierScores, matraDiffs, p
 function buildRankKeyMultiwordOutside(outsideCounts, internalCounts, outsidePosPenalties, tierScores, matraDiffs, prefixWords, middleWords, suffixWords) {
   const ak = affixKey(prefixWords, middleWords, suffixWords);
 
-  const extVec = outsideCounts.slice().reverse(); // last word first
-  const subsVec = internalCounts.slice().reverse();
-  const posVec = outsidePosPenalties.slice().reverse();
-  const tierVec = tierScores.slice().reverse();
+  // Prefer earlier query words in fuzzy tie-breaks: word1 > word2 > word3...
+  const extVec = outsideCounts.slice();
+  const subsVec = internalCounts.slice();
+  const posVec = outsidePosPenalties.slice();
+  const tierVec = tierScores.slice();
 
   let matraPenalty = 0;
   for (let i = 0; i < matraDiffs.length; i++) {
@@ -787,11 +789,12 @@ function buildRankKeyMultiwordOutside(outsideCounts, internalCounts, outsidePosP
 function buildRankKeyMultiwordInsertion(insertionCounts, outsideCounts, internalCounts, outsidePosPenalties, tierScores, matraDiffs, prefixWords, middleWords, suffixWords) {
   const ak = affixKey(prefixWords, middleWords, suffixWords);
 
-  const insVec = insertionCounts.slice().reverse();
-  const extVec = outsideCounts.slice().reverse();
-  const subsVec = internalCounts.slice().reverse();
-  const posVec = outsidePosPenalties.slice().reverse();
-  const tierVec = tierScores.slice().reverse();
+  // Prefer earlier query words in fuzzy tie-breaks: word1 > word2 > word3...
+  const insVec = insertionCounts.slice();
+  const extVec = outsideCounts.slice();
+  const subsVec = internalCounts.slice();
+  const posVec = outsidePosPenalties.slice();
+  const tierVec = tierScores.slice();
 
   let matraPenalty = 0;
   for (let i = 0; i < matraDiffs.length; i++) {
