@@ -483,9 +483,10 @@ function wordExactMatch(qW, cW) {
    - 10+   => 3
 ===================== */
 function outsideNonEmptyCapForEntities(entLen) {
-  if (entLen <= 2) return 0;
-  if (entLen <= 5) return 1;
-  if (entLen <= 9) return 2;
+  if (entLen <= 1) return 0;
+  if (entLen <= 3) return 1;
+  if (entLen <= 6) return 2;
+  if (entLen <= 9) return 3;
   return 3;
 }
 

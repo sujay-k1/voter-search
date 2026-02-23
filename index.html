@@ -731,7 +731,7 @@
       margin: 0 0 16px;
       color:#1d1f24;
       font-size: clamp(34px, 4.2vw, 48px);
-      line-height: 1.1;
+      line-height: 72px;
       font-weight: 700;
       letter-spacing: -0.02em;
     }
@@ -1131,8 +1131,8 @@
     }
     .popSelected{
       background: rgba(255, 210, 225, .55);
-      border-radius: 18px;
-      margin: 6px 10px;
+      border-radius: 12px;
+      margin: 0px 10px;
     }
     .popRow.popDisabled{
       opacity: .45;
@@ -1153,6 +1153,66 @@
       outline: none;
       font-weight: 800;
       font-size: 14px;
+    }
+
+    /* Transliteration hint + multi-word inline picker (same popover shell, different row interaction) */
+    .translitHint{
+      padding: 8px 16px 10px;
+      font-size: 12px;
+      line-height: 1.35;
+      color: rgba(0,0,0,.62);
+      font-weight: 400;
+      border-bottom: 1px solid rgba(0,0,0,.06);
+      margin-bottom: 2px;
+    }
+    .translitListMulti{
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 4px;
+    }
+    .translitPhraseRow{
+      display: flex;
+      align-items: center;
+      gap: 0; /* simulate natural spaces between words */
+      padding: 0 16px;
+      font-weight: 800;
+      color: #1e1e1e;
+      font-size: var(--fs-16);
+      white-space: nowrap;
+      width: max-content;
+      min-width: 100%;
+      box-sizing: border-box;
+    }
+    .translitPhraseSeg{
+      appearance: none;
+      border: 0;
+      background: transparent;
+      padding: 12px 0.225em;
+      margin: 0;
+      color: inherit;
+      font: inherit;
+      font-weight: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      border-radius: 12px;
+      text-align: left;
+      display: inline-flex;
+      align-items: center;
+    }
+    .translitPhraseSeg:hover{
+      background: rgba(255,255,255,.55);
+    }
+    .translitPhraseSeg.isActive{
+      background: rgba(255, 210, 225, .55);
+      padding: 12px 0.225em;
+      margin: 0;
+      border-radius: 12px;
+    }
+    .translitPhraseSeg.isActive:hover{
+      background: rgba(255, 210, 225, .55);
+    }
+    .translitPhraseSeg.isSelected{
+      color: var(--accent);
     }
 
     /* --------- modal --------- */
