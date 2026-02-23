@@ -1131,7 +1131,7 @@
     }
     .popSelected{
       background: rgba(255, 210, 225, .55);
-      border-radius: 18px;
+      border-radius: 12px;
       margin: 6px 10px;
     }
     .popRow.popDisabled{
@@ -1158,10 +1158,10 @@
     /* Transliteration hint + multi-word inline picker (same popover shell, different row interaction) */
     .translitHint{
       padding: 8px 16px 10px;
-      font-size: 12px;
+      font-size: 10px;
       line-height: 1.35;
       color: rgba(0,0,0,.62);
-      font-weight: 700;
+      font-weight: 400;
       border-bottom: 1px solid rgba(0,0,0,.06);
       margin-bottom: 2px;
     }
@@ -1173,7 +1173,7 @@
     .translitPhraseRow{
       display: flex;
       align-items: center;
-      gap: 0.45em; /* simulate natural spaces between words */
+      gap: 0; /* simulate natural spaces between words */
       padding: 0 16px;
       font-weight: 800;
       color: #1e1e1e;
@@ -1187,7 +1187,7 @@
       appearance: none;
       border: 0;
       background: transparent;
-      padding: 12px 0;
+      padding: 12px 0.225em;
       margin: 0;
       color: inherit;
       font: inherit;
@@ -1195,7 +1195,7 @@
       line-height: 1.2;
       cursor: pointer;
       white-space: nowrap;
-      border-radius: 0;
+      border-radius: 12px;
       text-align: left;
       display: inline-flex;
       align-items: center;
@@ -1205,9 +1205,9 @@
     }
     .translitPhraseSeg.isActive{
       background: rgba(255, 210, 225, .55);
-      padding: 12px 0;
+      padding: 12px 0.225em;
       margin: 0;
-      border-radius: 0;
+      border-radius: 12px;
     }
     .translitPhraseSeg.isActive:hover{
       background: rgba(255, 210, 225, .55);
