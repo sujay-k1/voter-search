@@ -21,6 +21,7 @@ const {
   serverError,
   readJsonBody,
   asString,
+  shouldUseVpsDistrict,
 } = require("./_turso");
 
 function asAcsArray(x) {
@@ -83,6 +84,19 @@ exports.handler = async (event) => {
 
     if (!district) return badRequest("Missing district");
     if (!state) return badRequest("Missing state");
+
+    if (shouldUseVpsDistrict(district)) {
+      const msTotal = Date.now() - t0;
+      console.log(`[warm] skipped Turso warm for VPS district=${district} state=${state} total=${msTotal}ms`);
+      return ok({
+        district,
+        state,
+        mode: "vps-skip",
+        ms_total: msTotal,
+        summary: { ok_steps: 0, total_steps: 0 },
+        steps: [],
+      });
+    }
 
     const client = await getClient(district);
 

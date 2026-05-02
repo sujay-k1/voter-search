@@ -13,6 +13,8 @@ const {
   readJsonBody,
   asInt,
   asString,
+  shouldUseVpsDistrict,
+  proxyJsonPost,
 } = require("./_turso");
 
 const DISPLAY_COLS = [
@@ -106,6 +108,11 @@ exports.handler = async (event) => {
     if (!state) return badRequest("Missing state");
     if (!Number.isFinite(ac)) return badRequest("Missing/invalid ac");
     if (!rowIdsIn.length) return ok({ rows: [] });
+
+    if (shouldUseVpsDistrict(district)) {
+      console.log(`[rows] proxy district=${district} ac=${ac} kind=${kind} count=${rowIdsIn.length} -> VPS`);
+      return await proxyJsonPost("rows", body);
+    }
 
     // Keep original order, but normalize to integers
     const rowIds = rowIdsIn.map((x) => Number(x));
