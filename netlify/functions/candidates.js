@@ -23,6 +23,8 @@ const {
   asInt,
   asString,
   decodeRowIds,
+  shouldUseVpsDistrict,
+  proxyJsonPost,
 } = require("./_turso");
 
 const ALLOWED_TABLES = new Set([
@@ -268,6 +270,11 @@ exports.handler = async (event) => {
     if (!district) return badRequest("Missing district");
     if (!state) return badRequest("Missing state");
     if (!Number.isFinite(ac)) return badRequest("Missing/invalid ac");
+
+    if (shouldUseVpsDistrict(district)) {
+      console.log(`[candidates] proxy district=${district} ac=${ac} -> VPS`);
+      return await proxyJsonPost("candidates", body);
+    }
 
     const client = await getClient(district);
 

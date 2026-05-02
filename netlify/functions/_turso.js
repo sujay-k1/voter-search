@@ -80,6 +80,56 @@ function json(statusCode, obj) {
   };
 }
 
+function parseDistrictSet(input, fallback = "dhanbad") {
+  const raw = String(input ?? fallback);
+  const out = new Set();
+  for (const part of raw.split(",")) {
+    const slug = slugifyDistrictId(part);
+    if (slug) out.add(slug);
+  }
+  return out;
+}
+
+function shouldUseVpsDistrict(districtIdOrSlug) {
+  const slug = slugifyDistrictId(districtIdOrSlug);
+  if (!slug) return false;
+  const districts = parseDistrictSet(process.env.VPS_API_DISTRICTS, "dhanbad");
+  return districts.has(slug);
+}
+
+async function proxyJsonPost(path, body) {
+  const base = process.env.VPS_API_BASE || "https://api.sujaykumar.net/";
+  const timeoutMs = Math.max(1000, asInt(process.env.VPS_API_TIMEOUT_MS, 60000) || 60000);
+  const url = new URL(String(path || "").replace(/^\/+/, ""), base).toString();
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort("timeout"), timeoutMs);
+
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body ?? {}),
+      signal: ctrl.signal,
+    });
+
+    const text = await resp.text();
+    let payload = null;
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = { ok: false, error: text || `HTTP ${resp.status}` };
+    }
+
+    return json(resp.status, payload);
+  } catch (err) {
+    const msg = String(err?.message || err || "VPS proxy failed");
+    return json(502, { ok: false, error: `VPS proxy failed: ${msg}` });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function ok(obj) {
   return json(200, { ok: true, ...(obj ?? {}) });
 }
@@ -247,4 +297,6 @@ module.exports = {
   asString,
   decodeRowIds,
   slugifyDistrictId,
+  shouldUseVpsDistrict,
+  proxyJsonPost,
 };
