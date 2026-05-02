@@ -80,7 +80,28 @@ function json(statusCode, obj) {
   };
 }
 
-const DEFAULT_VPS_DISTRICTS = "dhanbad,khunti,ranchi,hazaribagh,bokaro,palamu";
+const DEFAULT_VPS_DISTRICTS = [
+  "dhanbad",
+  "khunti",
+  "ranchi",
+  "hazaribagh",
+  "bokaro",
+  "palamu",
+  "east-singhbhum",
+  "gumla",
+  "saraikela-kharswan",
+  "west-singhbhum",
+  "chatra",
+  "deoghar",
+  "dumka",
+  "giridih",
+  "godda",
+  "jamtara",
+  "kodarma",
+  "pakur",
+  "ramgarh",
+  "sahebganj",
+].join(",");
 
 function parseDistrictSet(input, fallback = DEFAULT_VPS_DISTRICTS) {
   const raw = String(input ?? fallback);
