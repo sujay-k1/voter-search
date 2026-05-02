@@ -80,7 +80,9 @@ function json(statusCode, obj) {
   };
 }
 
-function parseDistrictSet(input, fallback = "dhanbad") {
+const DEFAULT_VPS_DISTRICTS = "dhanbad,khunti,ranchi,hazaribagh,bokaro,palamu";
+
+function parseDistrictSet(input, fallback = DEFAULT_VPS_DISTRICTS) {
   const raw = String(input ?? fallback);
   const out = new Set();
   for (const part of raw.split(",")) {
@@ -93,7 +95,7 @@ function parseDistrictSet(input, fallback = "dhanbad") {
 function shouldUseVpsDistrict(districtIdOrSlug) {
   const slug = slugifyDistrictId(districtIdOrSlug);
   if (!slug) return false;
-  const districts = parseDistrictSet(process.env.VPS_API_DISTRICTS, "dhanbad");
+  const districts = parseDistrictSet(process.env.VPS_API_DISTRICTS, DEFAULT_VPS_DISTRICTS);
   return districts.has(slug);
 }
 
